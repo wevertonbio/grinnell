@@ -56,11 +56,22 @@
 #' @param output_directory (character) name of the output directory where
 #' results should be written. If this directory does not exist, it will be
 #' created.
+#' @param parallel (logical) whether to run replicates in parallel.
+#' Default = FALSE.
+#' @param cores (numeric) number of cores to run replicates in parallel. Only
+#' works if parallel = TRUE. Default = 4
+#' @param overwrite (logical) whether or not to overwrite the
+#' \code{output_directory} if it already exists. Default = FALSE.
+#' @param progress_bar (logical) whether or not to show progress bar when
+#' running replicates in parallel. Default = TRUE.
 #'
 #' @export
 #' @importFrom terra rast ext writeRaster as.matrix res nrow ncol
 #' @importFrom stats quantile runif rnorm rlnorm
 #' @importFrom utils read.csv write.csv write.table
+#' @importFrom foreach foreach `%dopar%`
+#' @importFrom doParallel registerDoParallel
+#' @importFrom parallel makeCluster
 #'
 #' @rdname dispersal_simulationR
 #'
@@ -73,7 +84,8 @@
 #'                       threshold = 5, results_by = "scenario",
 #'                       return = "all", set_seed = 1,
 #'                       write_to_directory = FALSE, write_all = FALSE,
-#'                       raster_format = "GTiff", output_directory)
+#'                       raster_format = "GTiff", output_directory,
+#'                       parallel, cores, overwrite, progress_bar)
 #'
 #' @return
 #' If \code{return} = "all', all elements described below will be returned as a
@@ -147,7 +159,8 @@ dispersal_simulationR <- function(data, suit_layers, starting_proportion = 0.5,
                                   threshold = 5, results_by = "scenario",
                                   return = "all", set_seed = 1,
                                   write_to_directory = FALSE, write_all = FALSE,
-                                  raster_format = "GTiff", output_directory) {
+                                  raster_format = "GTiff", output_directory,
+                                  parallel, cores, overwrite, progress_bar) {
 
   # initial tests
   if (missing(data)) {
@@ -211,7 +224,9 @@ dispersal_simulationR <- function(data, suit_layers, starting_proportion = 0.5,
                                     max_dispersers, dispersal_events, replicates,
                                     threshold, return, set_seed,
                                     write_to_directory, write_all,
-                                    raster_format, output_directory)
+                                    raster_format, output_directory,
+                                    cores = cores, parallel,
+                                    overwrite = overwrite, progress_bar)
   } else {
     res <- event_wise_simulation(data, suit_layers, starting_proportion,
                                  proportion_to_disperse, sampling_rule,
@@ -219,7 +234,8 @@ dispersal_simulationR <- function(data, suit_layers, starting_proportion = 0.5,
                                  dispersal_events, replicates,
                                  threshold, return, set_seed,
                                  write_to_directory, raster_format,
-                                 output_directory)
+                                 output_directory, cores = cores,
+                                 parallel, overwrite = overwrite, progress_bar)
   }
 
   # end time
@@ -269,7 +285,8 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
                                      threshold = 5, return = "all",
                                      set_seed = 1, write_to_directory = FALSE,
                                      write_all = FALSE, raster_format = "GTiff",
-                                     output_directory) {
+                                     output_directory, parallel = TRUE,
+                                     cores, overwrite, progress_bar) {
 
   # initial values
   cur_layer <- terra::rast(suit_layers[length(suit_layers)])
@@ -299,10 +316,14 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
 
   # simulation
   for (i in 1:length(suit_layers)) {
-    message("  Scenario ", i, " of ", length(suit_layers), appendLF = FALSE)
+    message("  Scenario ", i, " of ", length(suit_layers),
+            appendLF = parallel) #Progress bar depends on parallel
 
     s <- terra::rast(suit_layers[i])
     S <- base_matrix(s)
+
+    #If not in parallel (or 1 core or only 1 replicate)
+    if(isFALSE(parallel) | cores == 1 | replicates == 1) {
 
     ## loop for all replicates
     message(" - Replicate:", appendLF = FALSE)
@@ -337,12 +358,62 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
       ### keeping replicates
       list_acc[[j]] <- c(A)
       list_col[[j]] <- c(C)
-
       message(" ", j, appendLF = FALSE)
+
+      }} else { #In parallel
+
+        #Make ans register cluster of cores
+        cl <- parallel::makeCluster(cores)
+        doSNOW::registerDoSNOW(cl)
+        `%dopar%` <- foreach::`%dopar%` # so %dopar% doesn't need to be attached
+
+        #Show progress bar?
+        if (progress_bar) {
+          pb <- txtProgressBar(min = 0, max = replicates, style = 3)
+          progress <- function(n) setTxtProgressBar(pb, n)
+          opts <- list(progress = progress)} else {
+            opts <- NULL
+          }
+
+        result_replicates <- foreach::foreach(j = 1:replicates,
+            .options.snow = opts,
+            .export = c("set_pop", "set_loc", "dispersal_steps",
+                        "which_colonized", "nd_sval", "angle_distance",
+                        "which_accessed", "update_accessed",
+                        "update_colonized", "replicate_stats",
+                        "binarize_matrix")) %dopar% {
+      set_seed <- set_seed + j - 1
+      if (i == 1) {
+        C <- set_pop(data, l_meta$NW_vertex, layer_dim,
+                     l_meta$cell_size, starting_proportion, sampling_rule,
+                     set_seed)
+        A <- C
+      }      else {
+        A <- matrix(list_acc[[j]], nrow = layer_dim[1],
+                    ncol = layer_dim[2])
+        C <- matrix(list_col[[j]], nrow = layer_dim[1],
+                    ncol = layer_dim[2])
+        C[S == 0] <- 0
+      }
+      for (k in 1:dispersal_events[i]) {
+        set_seed1 <- set_seed + ((k - 1) * 10)
+        A_now <- dispersal_steps(colonized_matrix = C,
+                                 suitability_matrix = S, disperser_rules = d_rules,
+                                 proportion_to_disperse, sampling_rule, dispersal_kernel,
+                                 kernel_spread, set_seed1)
+        A <- update_accessed(A, A_now)
+        C <- update_colonized(C, A_now, S)
+      }
+      return(list("A" = as.numeric(A), "C" = as.numeric(C)))
+    }
+
+    list_acc <- lapply(result_replicates, function(x) x$A)
+    list_col <- lapply(result_replicates, function(x) x$C)
+    parallel::stopCluster(cl)
     }
 
     ### statistics an updates and correcting with suitability
-    s[s[] > 0] <- 1
+    s <- (s > 0) * 1
     if(return == "all") {
       Amvb <- replicate_stats(list_acc, S, s, threshold)
       Cmvb <- replicate_stats(list_col, S, s, threshold)
@@ -364,32 +435,38 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
       if (write_all == TRUE) {
         if(return == "all") {
           namesA <- paste0("A_", c("mean", "var", "bin"), "_scenario_", i)
-          write_stats(Amvb, namesA, raster_format, output_directory)
+          write_stats(Amvb, namesA, raster_format, output_directory, overwrite)
           namesC <- paste0("C_", c("mean", "var", "bin"), "_scenario_", i)
-          write_stats(Cmvb, namesC, raster_format, output_directory)
+          write_stats(Cmvb, namesC, raster_format, output_directory, overwrite)
         } else {
           if(return == "accessed") {
             namesA <- paste0("A_", c("mean", "var", "bin"), "_scenario_", i)
-            write_stats(Amvb, namesA, raster_format, output_directory)
+            write_stats(Amvb, namesA, raster_format, output_directory,
+                        overwrite)
           } else {
             namesC <- paste0("C_", c("mean", "var", "bin"), "_scenario_", i)
-            write_stats(Cmvb, namesC, raster_format, output_directory)
+            write_stats(Cmvb, namesC, raster_format, output_directory,
+                        overwrite)
           }
         }
       } else {
         if(i == length(suit_layers)) {
           if(return == "all") {
             namesA <- paste0("A_", c("mean", "var", "bin"))
-            write_stats(Amvb, namesA, raster_format, output_directory)
+            write_stats(Amvb, namesA, raster_format, output_directory,
+                        overwrite)
             namesC <- paste0("C_", c("mean", "var", "bin"))
-            write_stats(Cmvb, namesC, raster_format, output_directory)
+            write_stats(Cmvb, namesC, raster_format, output_directory,
+                        overwrite)
           } else {
             if(return == "accessed") {
               namesA <- paste0("A_", c("mean", "var", "bin"))
-              write_stats(Amvb, namesA, raster_format, output_directory)
+              write_stats(Amvb, namesA, raster_format, output_directory,
+                          overwrite)
             } else {
               namesC <- paste0("C_", c("mean", "var", "bin"))
-              write_stats(Cmvb, namesC, raster_format, output_directory)
+              write_stats(Cmvb, namesC, raster_format, output_directory,
+                          overwrite)
             }
           }
         }
@@ -419,8 +496,8 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
       aname <- paste0(output_directory, "/A_classified", form1)
       cname <- paste0(output_directory, "/C_classified", form1)
 
-      terra::writeRaster(a_when, filename = aname)
-      terra::writeRaster(c_when, filename = cname)
+      terra::writeRaster(a_when, filename = aname, overwrite = overwrite)
+      terra::writeRaster(c_when, filename = cname, overwrite = overwrite)
     }
 
     res <- list(Summary = summ, A = Amvb[[3]], A_mean = Amvb[[1]],
@@ -432,7 +509,7 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
 
       if (write_to_directory == TRUE) {
         aname <- paste0(output_directory, "/A_scenarios", form1)
-        terra::writeRaster(a_when, filename = aname)
+        terra::writeRaster(a_when, filename = aname, overwrite = overwrite)
       }
 
       res <- list(Summary = summ, A = Amvb[[3]], A_mean = Amvb[[1]],
@@ -444,7 +521,7 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
 
       if (write_to_directory == TRUE) {
         cname <- paste0(output_directory, "/C_scenarios", form1)
-        terra::writeRaster(c_when, filename = cname)
+        terra::writeRaster(c_when, filename = cname, overwrite = overwrite)
       }
 
       res <- list(Summary = summ, A = NULL, A_mean = NULL, A_var = NULL,
@@ -478,7 +555,8 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
                                   dispersal_events = 25, replicates = 10,
                                   threshold = 5, return = "all",
                                   set_seed = 1, write_to_directory = FALSE,
-                                  raster_format = "GTiff", output_directory) {
+                                  raster_format = "GTiff", output_directory,
+                                  overwrite = TRUE) {
 
   # initial values
   cur_layer <- terra::rast(suit_layers[length(suit_layers)])
@@ -570,19 +648,21 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
         if(return == "all") {
           namesA <- paste0("A_", c("mean", "var", "bin"), "_scenario_", i,
                            "_event_", j)
-          write_stats(Amvb, namesA, raster_format, output_directory)
+          write_stats(Amvb, namesA, raster_format, output_directory, overwrite)
           namesC <- paste0("C_", c("mean", "var", "bin"), "_scenario_", i,
                            "_event_", j)
-          write_stats(Cmvb, namesC, raster_format, output_directory)
+          write_stats(Cmvb, namesC, raster_format, output_directory, overwrite)
         } else {
           if(return == "accessed") {
             namesA <- paste0("A_", c("mean", "var", "bin"), "_scenario_", i,
                              "_event_", j)
-            write_stats(Amvb, namesA, raster_format, output_directory)
+            write_stats(Amvb, namesA, raster_format, output_directory,
+                        overwrite)
           } else {
             namesC <- paste0("C_", c("mean", "var", "bin"), "_scenario_", i,
                              "_event_", j)
-            write_stats(Cmvb, namesC, raster_format, output_directory)
+            write_stats(Cmvb, namesC, raster_format, output_directory,
+                        overwrite)
           }
         }
       }
@@ -591,7 +671,7 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
     }
 
     # correcting with suitability
-    s[s[] > 0] <- 1
+    s <- (s > 0) * 1
     if(return == "all") {
       c_when <- c_when * s
     } else {
@@ -623,8 +703,8 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
       aname <- paste0(output_directory, "/A_classified", form1)
       cname <- paste0(output_directory, "/C_classified", form1)
 
-      terra::writeRaster(a_when, filename = aname)
-      terra::writeRaster(c_when, filename = cname)
+      terra::writeRaster(a_when, filename = aname, overwrite = overwrite)
+      terra::writeRaster(c_when, filename = cname, overwrite = overwrite)
     }
 
     res <- list(Summary = summ, A_events = a_when, C_events = c_when)
@@ -634,7 +714,7 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
 
       if (write_to_directory == TRUE) {
         aname <- paste0(output_directory, "/A_events", form1)
-        terra::writeRaster(a_when, filename = aname)
+        terra::writeRaster(a_when, filename = aname, overwrite = overwrite)
       }
 
       res <- list(Summary = summ, A_events = a_when, C_events = NULL)
@@ -644,7 +724,7 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
 
       if (write_to_directory == TRUE) {
         cname <- paste0(output_directory, "/C_events", form1)
-        terra::writeRaster(c_when, filename = cname)
+        terra::writeRaster(c_when, filename = cname, overwrite = overwrite)
       }
 
       res <- list(Summary = summ, A_events = NULL, C_events = c_when)
