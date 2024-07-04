@@ -16,8 +16,8 @@ nd_sval <- function(S_values, disperser_rules) {
   nd <- sapply(1:(length(sl)-1), function(i) {
     ifelse(S_values > sl[i] & S_values <= sl[i+1], Nd_list[i], 0)
   })
-
-  return(apply(nd, 1, sum))
+  #Changed apply by rowSums
+  return(rowSums(nd))
 }
 
 
@@ -31,19 +31,20 @@ set_loc <- function(coord, NW_vertex, cell_size) {
 
 
 # creates a matrix where all cells with records are set as 1 and the others as 0
-set_pop <- function(data, NW_vertex, layer_dim, cell_size,
-                    proportion = 1, rule = "random", set_seed = 1) {
+set_pop <- function(data, long, lat, NW_vertex, layer_dim, cell_size,
+                    proportion = 1, rule = "random", set_seed = 1,
+                    suit_values = NULL) {
   if (proportion == 1) {
-    samp <- data[, 2:3]
+    samp <- data[, c(long, lat)]
   } else {
     nr <- nrow(data)
     n <- round(nr * proportion)
 
     set.seed(set_seed)
     if (rule == "random") {
-      samp <- data[sample(nr, n), 2:3]
+      samp <- data[sample(nr, n), c(long, lat)]
     } else {
-      samp <- data[sample(nr, n, prob = data[, 4]), 2:3]
+      samp <- data[sample(nr, n, prob = suit_values), c(long, lat)]
     }
   }
 
@@ -59,11 +60,11 @@ set_pop <- function(data, NW_vertex, layer_dim, cell_size,
 
 
 # generates an initial matrix with colonized cells according to a layer and points
-initial_colonized <- function(data, base_layer, proportion = 1, rule = "random",
+initial_colonized <- function(data, long, lat, base_layer, proportion = 1, rule = "random",
                               set_seed = 1) {
   l_meta <- layer_metadata(base_layer)
 
-  C <- set_pop(data, l_meta$NW_vertex, l_meta$layer_dim, l_meta$cell_size,
+  C <- set_pop(data, long, lat, l_meta$NW_vertex, l_meta$layer_dim, l_meta$cell_size,
                proportion, rule, set_seed)
 
   return(C)
@@ -72,7 +73,7 @@ initial_colonized <- function(data, base_layer, proportion = 1, rule = "random",
 
 
 # sample cells from suitable areas
-suitable_cells <- function(suit_layer, data = NULL) {
+suitable_cells <- function(suit_layer, data = NULL, long = NULL, lat = NULL) {
 
   sp <- ifelse(is.null(data), "Species", as.character(data[1, 1]))
 
@@ -83,7 +84,7 @@ suitable_cells <- function(suit_layer, data = NULL) {
     return(data.frame(species = sp, longitude = noz[, 1], latitude = noz[, 2],
                       suitability = noz[, 3]))
   } else {
-    suit_bar <- terra::extract(suit_layer, data[, 2:3])[, 2]
+    suit_bar <- terra::extract(suit_layer, data[, c(long, lat)])[, 2]
     tokeep <- suit_bar > 0 & !is.na(suit_bar)
 
     if (sum(tokeep) == 0) {
