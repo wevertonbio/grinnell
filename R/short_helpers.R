@@ -84,7 +84,8 @@ binarize_matrix <- function(m, threshold_percentage = NULL,
 
 # matrix to raster layer
 matrix_to_rlayer <- function(m, layer, name = NULL) {
-  layer[] <- c(t(m))
+  # layer2[] <- c(t(m))
+  layer <- init(layer, c(t(m)))
   names(layer) <- ifelse(is.null(name), "mlayer", name)
 
   return(layer)
@@ -139,16 +140,19 @@ rformat_type <- function(format) {
 
 
 # write raster layers of simulation results
-write_stats <- function(rep_stat_list, names, format, directory) {
+write_stats <- function(rep_stat_list, names, format, directory, overwrite) {
   format1 <- rformat_type(format)
   terra::writeRaster(
-    rep_stat_list[[1]], filename = paste0(directory, "/", names[1], format1)
+    rep_stat_list[[1]], filename = paste0(directory, "/", names[1], format1),
+    overwrite = overwrite
   )
   terra::writeRaster(
-    rep_stat_list[[2]], filename = paste0(directory, "/", names[2], format1)
+    rep_stat_list[[2]], filename = paste0(directory, "/", names[2], format1),
+    overwrite = overwrite
   )
   terra::writeRaster(
-    rep_stat_list[[3]], filename = paste0(directory, "/", names[3], format1)
+    rep_stat_list[[3]], filename = paste0(directory, "/", names[3], format1),
+    overwrite = overwrite
   )
 }
 
@@ -232,4 +236,26 @@ save_event_plot <- function(data, event_simulation_results, barriers = NULL,
   points(data[, 2:3], pch = 16, cex = 0.3)
 
   dev.off()
+}
+
+#Helper to make plot in gifs
+make_plot <- function(rasters, progress_bar = TRUE, verbose = TRUE){
+  if(verbose){
+    message("Making plots...")
+  }
+  if (progress_bar) {
+    # Replicates
+    total_steps <- terra::nlyr(rasters)
+    pb <- progress::progress_bar$new(
+      format = "[:bar] :percent eta::eta [:elapsed]",
+      total = total_steps,
+      clear = FALSE
+    )
+  }
+  for (i in 1:terra::nlyr(rasters)){
+    if (progress_bar) {
+      pb$tick()
+    }
+    plot(rasters[[i]], main = names(rasters)[i])
+  }
 }
