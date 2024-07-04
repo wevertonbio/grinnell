@@ -78,6 +78,12 @@
 #' in which all results will be written.
 #' @param overwrite (logical) whether or not to overwrite the
 #' \code{output_directory} if it already exists. Default = FALSE.
+#' @param parallel (logical) whether to run replicates in parallel.
+#' Default = FALSE.
+#' @param cores (numeric) number of cores to run replicates in parallel. Only
+#' works if parallel = TRUE. Default = 4
+#' @param progress_bar (logical) whether or not to show progress bar when
+#' running replicates in parallel. Default = TRUE.
 #'
 #' @return
 #' A list containing:
@@ -121,7 +127,8 @@
 #'               lgm_to_current = 7, stable_current = 13,
 #'               scenario_span = 1, out_format = "GTiff", set_seed = 1,
 #'               write_all_scenarios = FALSE, output_directory,
-#'               overwrite = FALSE)
+#'               overwrite = FALSE, parallel = FALSE, cores = 4,
+#'               progress_bar = TRUE)
 #'
 #' @details
 #' A principal component analysis is performed with \code{current_variables}.
@@ -199,7 +206,8 @@ M_simulationR <- function(data, current_variables, starting_proportion = 0.5,
                           lgm_to_current = 7, stable_current = 13,
                           scenario_span = 1, out_format = "GTiff", set_seed = 1,
                           write_all_scenarios = FALSE, output_directory,
-                          overwrite = FALSE) {
+                          overwrite = FALSE, parallel = FALSE, cores = 4,
+                          progress_bar = TRUE) {
 
   # --------
   # testing for initial requirements
@@ -270,7 +278,8 @@ M_simulationR <- function(data, current_variables, starting_proportion = 0.5,
     current_variables <- pca_raster(variables = current_variables, scale = scale,
                                     center = center, n_pcs = npcs,
                                     project = project, write_to_directory = TRUE,
-                                    output_directory = opca_fol)[[2]]
+                                    output_directory = opca_fol,
+                                    overwrite = overwrite)[[2]]
 
     ## suitability
     suit_mod <- ellipsoid_suitability(data, current_variables,
@@ -289,7 +298,7 @@ M_simulationR <- function(data, current_variables, starting_proportion = 0.5,
     write_ellmeta(suit_mod, emodfile)
 
     s_name <- paste0(suit_fol, "/suitability", ftype)
-    terra::writeRaster(suit_layer, filename = s_name)
+    terra::writeRaster(suit_layer, filename = s_name, overwrite = overwrite)
 
     suit_name <- normalizePath(s_name)
 
@@ -299,7 +308,8 @@ M_simulationR <- function(data, current_variables, starting_proportion = 0.5,
                       projection_variables = projection_variables,
                       return_projection = TRUE, write_to_directory = TRUE,
                       out_format = out_format,
-                      output_directory = opca_fol)[c(2, 3)]
+                      output_directory = opca_fol,
+                      overwrite = overwrite)[c(2, 3)]
 
     current_variables <- pcs[[1]]
     projection_variables <- pcs[[2]][[1]]
@@ -327,10 +337,10 @@ M_simulationR <- function(data, current_variables, starting_proportion = 0.5,
     write_ellmeta(suit_mod, emodfile)
 
     s_name <- paste0(suit_fol, "/suitability_current", ftype)
-    terra::writeRaster(suit_layer, filename = s_name)
+    terra::writeRaster(suit_layer, filename = s_name, overwrite = overwrite)
 
     l_name <- paste0(suit_fol, "/suitability_lgm", ftype)
-    terra::writeRaster(suit_lgm, filename = l_name)
+    terra::writeRaster(suit_lgm, filename = l_name, overwrite = overwrite)
 
     ## names for later
     sp_name <- normalizePath(s_name)
@@ -385,7 +395,10 @@ M_simulationR <- function(data, current_variables, starting_proportion = 0.5,
                                return = "accessed", write_to_directory = TRUE,
                                write_all = write_all_scenarios,
                                raster_format = out_format,
-                               output_directory = out_dir)
+                               output_directory = out_dir,
+                               cores = cores, parallel = parallel,
+                               overwrite = overwrite,
+                               progress_bar = progress_bar)
 
   # --------
   # preparing, writing, and outputs
