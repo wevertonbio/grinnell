@@ -116,7 +116,7 @@ pca_raster <- function(variables, in_format = NULL, scale = TRUE, center = TRUE,
   if (is.null(n_pcs)) {n_pcs <- ncol(var_points)}
 
   # pca analyses and prediction
-  pca <- prcomp(var_points, retx = FALSE, center = center, scale = scale)
+  pca <- prcomp(na.omit(var_points), retx = FALSE, center = center, scale = scale)
 
   SumPCAMat <- summary(pca)$importance
 
