@@ -259,7 +259,7 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   initial_m <- terra::disagg(terra::as.polygons(
     terra::trim(!is.na(suit_layers[[1]]) * 1,0)))
   #Crop layer to initial M
-  A_bin <- crop(Amvb[[3]], initial_m, mask = TRUE)
+  A_bin <- terra::crop(Amvb[[3]], initial_m, mask = TRUE)
   A_bin[A_bin[] == 0] <- NA
   A_bin <- terra::trim(A_bin)
   shpm <- terra::as.polygons(A_bin, dissolve = TRUE)
@@ -267,12 +267,12 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   #mapview(shpm)
 
   if(results_by_scenario){
-    list_scen <- rast(list_scen)
+    list_scen <- terra::rast(list_scen)
     names(list_scen) <- names(suit_layers)
   }
 
   if(results_by_event){
-    list_event <- rast(unlist(list_event))
+    list_event <- terra::rast(unlist(list_event))
   }
 
   ####Prepare m final ####
@@ -280,7 +280,7 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   if(remove_m_without_records){
     pts <- terra::vect(data, geom = c(x = long, y = lat), crs = "+init=epsg:4326")
     #Get only polygons with occurrences
-    m_final <- disagg(shpm)
+    m_final <- terra::disagg(shpm)
     m_final <- m_final[terra::is.related(m_final, pts, "intersects")]
   } else {m_final <- shpm}
 
@@ -291,10 +291,11 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
 
   #Add final buffer
   if(!is.null(extra_buffer) & length(pts_outside) > 0) {
-    b_occ <- buffer(pts_outside , width = extra_buffer * 1000)
+    b_occ <- terra::buffer(pts_outside , width = extra_buffer * 1000)
     #Select only buffers that insersects with M
     b_occ <- b_occ[terra::is.related(b_occ, m_final, "intersects")]
     #Merge
+    if(length(b_occ) > 0)
     m_final <- terra::aggregate(terra::union(m_final, b_occ))
     #m_v <- buffer(m_v, width = final_buffer * 1000)
   }
@@ -305,7 +306,7 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   #Get final report
   #Number of polygons with occurrence in the initial m
   #Get initial_m
-  n_pol_occ <- sum(is.related(initial_m, pts, "intersects"))
+  n_pol_occ <- sum(terra::is.related(initial_m, pts, "intersects"))
   #Number of polygons in m final
   n_pol <- length(terra::disagg(m_final))
   #Number of records outside

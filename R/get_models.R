@@ -100,12 +100,12 @@ get_models <- function(data, long, lat,
     #Cut to continent
     continent <- as.polygons(!is.na(current_variables[[1]]) * 1)
     continent <- continent[continent$bio_1 == 1]
-    big_m <- crop(big_m, continent)
+    big_m <- terra::crop(big_m, continent)
     #Disaggregate big_m
-    big_m <- disagg(big_m)
+    big_m <- terra::disagg(big_m)
 
     #Cut variables of the present
-    current_variables <- crop(current_variables, big_m, mask = TRUE) }
+    current_variables <- terra::crop(current_variables, big_m, mask = TRUE) }
 
 
   #Do PCA

@@ -85,7 +85,7 @@ binarize_matrix <- function(m, threshold_percentage = NULL,
 # matrix to raster layer
 matrix_to_rlayer <- function(m, layer, name = NULL) {
   # layer2[] <- c(t(m))
-  layer <- init(layer, c(t(m)))
+  layer <- terra::init(layer, c(t(m)))
   names(layer) <- ifelse(is.null(name), "mlayer", name)
 
   return(layer)
@@ -104,11 +104,16 @@ replicate_stats <- function(list_replicates, base_matrix, layer, threshold) {
   }
 
   all_meanA <- mean_A[mean_A > 0]
+
+  if(length(all_meanA) > 0){
   threshold <- quantile(all_meanA, probs = threshold / 100)
   if (threshold == max(all_meanA)) {
     A_bin <- as.numeric(mean_A >= threshold)
   } else {
     A_bin <- as.numeric(mean_A > threshold)
+  }
+  } else { #To avoid error when any place can be colonized
+    A_bin <- mean_A
   }
 
   layer_dim <- dim(base_matrix)

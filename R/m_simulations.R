@@ -165,6 +165,7 @@ m_simulations <- function(data, long, lat, current_variables, variables,
   #Create list to save simulations
   res <- list()
   for(i in 1:nrow(comb_grid)){
+    #print(i)
     if(verbose & nrow(comb_grid) > 1){message("Simulating combination ", i)}
 
     #Simulation

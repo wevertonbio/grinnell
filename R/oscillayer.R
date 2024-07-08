@@ -78,7 +78,7 @@ oscillayer <- function(current_variables, lgm, final_period = 120,
     }
     res_period[[f]] <- rast(res_l)
 
-    if(any(minmax(res_period[[f]][[precipitation_var]])[1,] < 0)){
+    if(any(terra::minmax(res_period[[f]][[precipitation_var]])[1,] < 0)){
       res_period[[f]][[precipitation_var]] <- (res_period[[f]][[precipitation_var]]
                                                > 0) * res_period[[f]][[precipitation_var]]}
   }
@@ -87,7 +87,8 @@ oscillayer <- function(current_variables, lgm, final_period = 120,
   if(write_files){
     for(i in names(res_period)){
       terra::writeRaster(res_period[[i]],
-                         paste0(output_dir, "/", i, ".tif"))
+                         paste0(output_dir, "/", i, ".tif"),
+                         overwrite =  overwrite)
     }
   }
 
