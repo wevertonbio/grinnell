@@ -364,7 +364,8 @@ M_simulationR <- function(data, current_variables, starting_proportion = 0.5,
   occ_suit <- suit_mod[[1]][, 1:2]
   suit_lay <- terra::rast(suit_name[1])
   oca <- data.frame(Species = sp_nam, occ_suit)
-  oca <- suitable_cells(suit_lay, data = oca)
+  oca <- suitable_cells(suit_lay, data = oca,
+                        long = "Longitude", lat = "Latitude")
 
   ## records
   oca_nam <- paste0(output_directory, "/occ_simulation.csv")

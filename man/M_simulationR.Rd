@@ -15,7 +15,8 @@ M_simulationR(data, current_variables, starting_proportion = 0.5,
               lgm_to_current = 7, stable_current = 13,
               scenario_span = 1, out_format = "GTiff", set_seed = 1,
               write_all_scenarios = FALSE, output_directory,
-              overwrite = FALSE)
+              overwrite = FALSE, parallel = FALSE, cores = 4,
+              progress_bar = TRUE)
 }
 \arguments{
 \item{data}{data.frame with occurrence records for the species of interest to
@@ -118,6 +119,15 @@ in which all results will be written.}
 
 \item{overwrite}{(logical) whether or not to overwrite the
 \code{output_directory} if it already exists. Default = FALSE.}
+
+\item{parallel}{(logical) whether to run replicates in parallel.
+Default = FALSE.}
+
+\item{cores}{(numeric) number of cores to run replicates in parallel. Only
+works if parallel = TRUE. Default = 4}
+
+\item{progress_bar}{(logical) whether or not to show progress bar when
+running replicates in parallel. Default = TRUE.}
 }
 \value{
 A list containing:

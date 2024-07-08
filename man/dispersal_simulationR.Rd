@@ -14,7 +14,8 @@ dispersal_simulationR(data, suit_layers, starting_proportion = 0.5,
                       threshold = 5, results_by = "scenario",
                       return = "all", set_seed = 1,
                       write_to_directory = FALSE, write_all = FALSE,
-                      raster_format = "GTiff", output_directory)
+                      raster_format = "GTiff", output_directory,
+                      parallel, cores, overwrite, progress_bar)
 
 scenario_wise_simulation(data, suit_layers, starting_proportion = 0.5,
                          proportion_to_disperse = 1, sampling_rule = "random",
@@ -105,6 +106,18 @@ written. Options are: "GTiff" and "ascii". Default = "GTiff.}
 \item{output_directory}{(character) name of the output directory where
 results should be written. If this directory does not exist, it will be
 created.}
+
+\item{parallel}{(logical) whether to run replicates in parallel.
+Default = FALSE.}
+
+\item{cores}{(numeric) number of cores to run replicates in parallel. Only
+works if parallel = TRUE. Default = 4}
+
+\item{overwrite}{(logical) whether or not to overwrite the
+\code{output_directory} if it already exists. Default = FALSE.}
+
+\item{progress_bar}{(logical) whether or not to show progress bar when
+running replicates in parallel. Default = TRUE.}
 }
 \value{
 If \code{return} = "all', all elements described below will be returned as a

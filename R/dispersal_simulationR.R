@@ -332,7 +332,8 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
       ## preparing C matrix
       set_seed <- set_seed + j - 1
       if (i == 1) {
-        C <- set_pop(data, l_meta$NW_vertex, layer_dim, l_meta$cell_size,
+        C <- set_pop(data, long = "longitude", lat = "latitude",
+                     l_meta$NW_vertex, layer_dim, l_meta$cell_size,
                      starting_proportion, sampling_rule, set_seed)
         A <- C
       } else {

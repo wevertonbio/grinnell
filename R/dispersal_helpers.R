@@ -73,7 +73,7 @@ initial_colonized <- function(data, long, lat, base_layer, proportion = 1, rule 
 
 
 # sample cells from suitable areas
-suitable_cells <- function(suit_layer, data = NULL, long = NULL, lat = NULL) {
+suitable_cells <- function(suit_layer, data = NULL, long = "x", lat = "y") {
 
   sp <- ifelse(is.null(data), "Species", as.character(data[1, 1]))
 
