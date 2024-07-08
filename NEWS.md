@@ -1,6 +1,6 @@
 # grinnell 0.0.23 - Weverton version
 
-* M_simulationR and dispersal_simulationR: Allowed parallelization of replicates and fixed a bug related to overwriting.
+* M_simulationR and dispersal_simulationR: Allowed parallelization of replicates, fixed a bug related to overwriting, and added long and lat arguments.
 * dispersal_helpers:
 	- In nd_sval, replaced apply with rowsums to improve performance.
 	- In set_pop, initial_colonized, and suitable_cells, added arguments to identify longitude and latitude.
@@ -14,7 +14,7 @@
 * get_models: new function to get and predict models to current and past conditions.
 * scenario_wise_simulation_b: alternative version of scenario_wise_simulation to simulate species dispersal processes.
 * m_simulations: alternative version of M_simulationR to simulate species dispersal processes.
-* gif_dispersion: new function to render animated gifs showing dispersion by event or scenario
+* gif_dispersion: new function to render animated gifs showing dispersion by event or scenario.
 
 # grinnell 0.0.22
 
