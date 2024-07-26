@@ -92,7 +92,7 @@
 #' suitable-but-inaccessible cells by scenario. Only returned if
 #' results_by_scenario = TRUE.
 #' - summary: a data.frame including:
-#'     - information on the paremeters used: nunber of scenarios,
+#'     - information on the paremeters used: number of scenarios,
 #'     starting_proportion, proportion_to_disperse, sampling_rule,
 #'     Dispersal_events, Replicates, Dispersal_kernel, Kernel_spread_SD, and
 #'     Max_dispersers.
