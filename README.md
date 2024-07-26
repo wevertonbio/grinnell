@@ -1,35 +1,51 @@
----
-title: "An alternative version of grinnell: Dispersal Simulations Based on Ecological Niches"
-author: "Weverton Trindade"
-output:
-  github_document:
-    toc: yes
-    toc_depth: 4
----
+An alternative version of grinnell: Dispersal Simulations Based on
+Ecological Niches
+================
+Weverton Trindade
 
-```{r knitr_init, echo=FALSE, cache=FALSE, message=FALSE}
-knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, comment = "#>")
-```
+- [Project description](#project-description)
+- [What is new in this alternative
+  version?](#what-is-new-in-this-alternative-version)
+- [Installation](#installation)
+- [Workflow](#workflow)
+  - [1 Download variables from
+    rpaleoclim](#1-download-variables-from-rpaleoclim)
 
 <hr>
 
 ## Project description
 
-This is an alternative version of the [grinnell R package](https://github.com/fmachados/grinnell). Please, read and cite the [original paper](https://escholarship.org/content/qt8hq04438/qt8hq04438.pdf).
+This is an alternative version of the [grinnell R
+package](https://github.com/fmachados/grinnell). Please, read and cite
+the [original
+paper](https://escholarship.org/content/qt8hq04438/qt8hq04438.pdf).
 
-**grinnell** is an R package to simulate dispersal, colonization, and accessibility based on niche estimations. One of the main algorithms implemented here is the simulation of species accessible areas (M), which can be used as calibration areas in Ecological Niche Models (ENM) and Species Distribution Models (SDM).
+**grinnell** is an R package to simulate dispersal, colonization, and
+accessibility based on niche estimations. One of the main algorithms
+implemented here is the simulation of species accessible areas (M),
+which can be used as calibration areas in Ecological Niche Models (ENM)
+and Species Distribution Models (SDM).
 
-To simulate M, grinnell uses the same inputs needed by several ENM and SDM: clean occurrences of the study species and a set of climatic layers (rasters).
+To simulate M, grinnell uses the same inputs needed by several ENM and
+SDM: clean occurrences of the study species and a set of climatic layers
+(rasters).
 
 ## What is new in this alternative version?
 
-While the original version constructs glacial-interglacial climate conditions based on interpolations between current and LGM climate conditions, this alternative version allows for the use of climatic variables representing glacial-interglacial climate conditions provided externally by other sources, such as [PaleoClim](https://cran.r-project.org/web/packages/rpaleoclim/vignettes/rpaleoclim.html) and [Oscillayers](https://onlinelibrary.wiley.com/doi/full/10.1111/geb.12979).
+While the original version constructs glacial-interglacial climate
+conditions based on interpolations between current and LGM climate
+conditions, this alternative version allows for the use of climatic
+variables representing glacial-interglacial climate conditions provided
+externally by other sources, such as
+[PaleoClim](https://cran.r-project.org/web/packages/rpaleoclim/vignettes/rpaleoclim.html)
+and
+[Oscillayers](https://onlinelibrary.wiley.com/doi/full/10.1111/geb.12979).
 
 ## Installation
 
 To install and call this alternative version of `grinnell` use:
 
-```{r install, eval=FALSE}
+``` r
 if (!require("remotes")) {
   install.packages("remotes")
 }
@@ -38,18 +54,21 @@ remotes::install_github("wevertonbio/grinnell")
 library(grinnell)
 ```
 
-```{r load_package, echo = FALSE}
-library(grinnell)
-```
-
 <hr>
+
 <br>
 
 ## Workflow
 
 ### 1 Download variables from rpaleoclim
-First, we need to download the variables representing climatic conditions between the current period and LGM period from [PaleoClim](https://cran.r-project.org/web/packages/rpaleoclim/vignettes/rpaleoclim.html). To do this, install the *rpaleoclim* R package and download the variables:
-```{r rpaleoclim, echo = TRUE, eval = FALSE}
+
+First, we need to download the variables representing climatic
+conditions between the current period and LGM period from
+[PaleoClim](https://cran.r-project.org/web/packages/rpaleoclim/vignettes/rpaleoclim.html).
+To do this, install the *rpaleoclim* R package and download the
+variables:
+
+``` r
 #### Download paleoclim data with rpaleoclim ####
 if (!require("rpaleoclim")) {
   install.packages("rpaleoclim")
@@ -69,14 +88,14 @@ neot <- buffer(neot, width = 100*1000)
 
 #Get times to download
 times <- c("cur", #Current (1979 – 2013)
-           "lh", #Late Holocene: Meghalayan	4.2-0.3 ka
-           "mh", #Mid Holocene: Northgrippian	8.326-4.2 ka
-           "eh", #Early Holocene: Greenlandian	11.7-8.326 ka
-           "yds", #Pleistocene: Younger Dryas Stadial	12.9-11.7 ka
-           "ba", 	#Pleistocene: Bølling-Allerød	14.7-12.9 ka
-           "hs1", #Pleistocene: Heinrich Stadial 1	17.0-14.7 ka
-           "lgm", #Pleistocene: Last Glacial Maximum	ca. 21 ka
-           "lig") #Pleistocene: Last Interglacial	ca. 130 ka
+           "lh", #Late Holocene: Meghalayan 4.2-0.3 ka
+           "mh", #Mid Holocene: Northgrippian   8.326-4.2 ka
+           "eh", #Early Holocene: Greenlandian  11.7-8.326 ka
+           "yds", #Pleistocene: Younger Dryas Stadial   12.9-11.7 ka
+           "ba",    #Pleistocene: Bølling-Allerød   14.7-12.9 ka
+           "hs1", #Pleistocene: Heinrich Stadial 1  17.0-14.7 ka
+           "lgm", #Pleistocene: Last Glacial Maximum    ca. 21 ka
+           "lig") #Pleistocene: Last Interglacial   ca. 130 ka
 
 #### Download variables ar 10arcmmin of resolution ####
 pblapply(times, function(i){
@@ -91,9 +110,20 @@ pblapply(times, function(i){
 })
 ```
 
-Note that there is a significant interval between the LGM (ca. 21ka) and the LIG (ca. 130 ka). We can fill this gap using the same method employed by [Oscillayers](https://onlinelibrary.wiley.com/doi/full/10.1111/geb.12979). Oscillayers constructs environmental variables representing climatic conditions over the last 5.4 million years at intervals of 10ka. It is based on interpolated anomalies between bioclimatic layers of the present and the Last Glacial Maximum (LGM), scaled relative to the Plio-Pleistocene global mean temperature curve derived from benthic stable oxygen isotope ratios. This alternative version of grinnell includes a function to generate these layers. Let's use the current and LGM variables downloaded from PaleoClim as inputs for this function:
+Note that there is a significant interval between the LGM (ca. 21ka) and
+the LIG (ca. 130 ka). We can fill this gap using the same method
+employed by
+[Oscillayers](https://onlinelibrary.wiley.com/doi/full/10.1111/geb.12979).
+Oscillayers constructs environmental variables representing climatic
+conditions over the last 5.4 million years at intervals of 10ka. It is
+based on interpolated anomalies between bioclimatic layers of the
+present and the Last Glacial Maximum (LGM), scaled relative to the
+Plio-Pleistocene global mean temperature curve derived from benthic
+stable oxygen isotope ratios. This alternative version of grinnell
+includes a function to generate these layers. Let’s use the current and
+LGM variables downloaded from PaleoClim as inputs for this function:
 
-```{r oscillayers, echo = TRUE, eval = FALSE}
+``` r
 #Run this only once to generate the variables between LGM and the desired time.
 current_variables <- rast("paleoclim_10/cur.tif")
 lgm <- rast("paleoclim_10/lgm.tif")
@@ -107,10 +137,12 @@ oscillayer(current_variables = current_variables,
            overwrite = TRUE,
            progress_bar = TRUE)
 ```
+
 Check the folder set in *output_dir* and see the new variables.
 
 Now, we can use these variables to run the simulations:
-```{r, echo = TRUE, eval = FALSE}
+
+``` r
 #Load current variables
 current_variables <- rast("paleoclim_10/cur.tif")
 #Set the sequence of periods, from the most recent to the oldest
@@ -160,10 +192,16 @@ m <- m_simulations(data = occ, #Dataframe with longitude and latitude of the rec
                      progress_bar = TRUE,
                      verbose = TRUE)
 ```
-You can use the information in **m$summary** to select the optimal combination of M, based on the number of disjoint polygons and the number of records outside the final M.
 
-If you set **results_by_event** or **results_by_scenario** to TRUE, you can use these results to make a GIF showing the dispersal simulation by event or by scenario:
-```{r gif, echo = TRUE, eval = FALSE}
+You can use the information in **m\$summary** to select the optimal
+combination of M, based on the number of disjoint polygons and the
+number of records outside the final M.
+
+If you set **results_by_event** or **results_by_scenario** to TRUE, you
+can use these results to make a GIF showing the dispersal simulation by
+event or by scenario:
+
+``` r
 gif_dispersion(m$m_by_scen, gif_file = "Dispersion_by_scenario.gif",
                width = 2200,
                height = 1500,
