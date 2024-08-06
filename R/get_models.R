@@ -88,7 +88,7 @@ get_models <- function(data, long, lat,
   remove_na <- which(is.na(terra::extract(current_variables[[1]],
                                           xy, ID = FALSE, raw = TRUE)))
   if(length(remove_na) > 0){
-    data <- data[-remova_na,]
+    data <- data[-remove_na,]
     xy <- xy[-remove_na,]}
 
   #Set initial m
