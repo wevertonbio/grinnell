@@ -83,7 +83,7 @@
 #'     if the record falls outside the final M.
 #'
 #' @export
-#' @importFrom terra minmax extract nlyr disagg as.polygons trim is.related vect aggregate union expanse
+#' @importFrom terra minmax extract nlyr disagg as.polygons trim is.related vect aggregate union expanse crs
 #' @importFrom progress progress_bar
 #'
 scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
@@ -278,7 +278,8 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   ####Prepare m final ####
   #Remove disjunct M without records
   if(remove_m_without_records){
-    pts <- terra::vect(data, geom = c(x = long, y = lat), crs = "+init=epsg:4326")
+    pts <- terra::vect(data, geom = c(x = long, y = lat),
+                       crs = terra::crs(suit_layers))
     #Get only polygons with occurrences
     m_final <- terra::disagg(shpm)
     m_final <- m_final[terra::is.related(m_final, pts, "intersects")]

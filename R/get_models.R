@@ -56,7 +56,7 @@
 #' Lastly, the suitability models are projected to past conditions.
 #'
 #' @importFrom terra extract convHull buffer prcomp predict disagg as.polygons
-#' trim rast crop
+#' trim rast crop vect crs
 #' @export
 #' @usage get_models(data, long, lat, current_variables, variables = NULL,
 #'                   scale = TRUE, center = TRUE, projection_dir, periods,
@@ -81,7 +81,8 @@ get_models <- function(data, long, lat,
   #Get occurrences
   xy <- data[,c(long, lat)]
   #Convert points to spatvector
-  xys <- vect(xy, geom = c(x = long, y = lat), crs = "+init=epsg:4326")
+  xys <- terra::vect(xy, geom = c(x = long, y = lat),
+              crs = terra::crs(current_variables))
   #mapview(xys)
 
   #Remove NAs from PCAs
