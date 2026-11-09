@@ -70,8 +70,8 @@
 #' the acessed, colonized and suitable-but-inaccessible cells by event.
 #' @param results_by_scenario (logical) wheter to return Spatrasters representing
 #' the acessed, colonized and suitable-but-inaccessible cells by scenario.
-#' @param remove_m_without_records (logical) whether to remove disjunct polygons
-#' that do not have any records inside them.
+#' @param min_records (numeric) whether to remove disjunct polygons
+#' that do not have the specified number of records.
 #' @param extra_buffer (numeric) width (in kilometers) of the buffer to be added
 #' to the records outside the M. Only the buffers that connect to the M are kept
 #' in the final M. If NULL, no buffers are drawn around outside records.
@@ -108,7 +108,7 @@
 #' the function returns a list containing results for each combination.
 #' @export
 #' @importFrom terra extract
-m_simulations <- function(data, long, lat, current_variables, variables,
+m_simulations <- function(data, long, lat, current_variables, variables = NULL,
                          scale = TRUE, center = TRUE,
                          projection_dir, periods, pattern = ".tif",
                          initial_m_buffer = NULL,
@@ -126,7 +126,7 @@ m_simulations <- function(data, long, lat, current_variables, variables,
                          skip_extinction = TRUE,
                          results_by_event = FALSE,
                          results_by_scenario = FALSE,
-                         remove_m_without_records = TRUE,
+                         min_records = 1,
                          extra_buffer = 25,
                          progress_bar = TRUE,
                          verbose = TRUE){
@@ -145,12 +145,16 @@ m_simulations <- function(data, long, lat, current_variables, variables,
                       initial_m_buffer,
                       suitability_threshold)
 
-  #Keep one record by pixel
-  new_occ <- data
-  new_occ$cell <- terra::extract(model$models[[1]], data[,c(long, lat)],
-                          cell = TRUE, ID = FALSE)$cell
-  new_occ <- new_occ[!duplicated(new_occ$cell), ]
+  #Keep one record by pixel, only for records within the modeled area
+  new_occ <- model$data
+  new_occ$cell <- terra::extract(model$models[[1]], new_occ[, c(long, lat)],
+                                 cell = TRUE, ID = FALSE)$cell
+  new_occ <- new_occ[!is.na(new_occ$cell), , drop = FALSE]
+  new_occ <- new_occ[!duplicated(new_occ$cell), , drop = FALSE]
   new_occ$cell <- NULL
+  if(nrow(new_occ) == 0){
+    stop("No occurrence records fall within the modeled area")
+  }
 
   if(verbose){
     message("Simulating dispersion in past scenarios...")
@@ -169,7 +173,7 @@ m_simulations <- function(data, long, lat, current_variables, variables,
     if(verbose & nrow(comb_grid) > 1){message("Simulating combination ", i)}
 
     #Simulation
-    ms <- scenario_wise_simulation_b(data, long, lat,
+    ms <- scenario_wise_simulation_b(new_occ, long, lat,
                                      suit_layers = model$models,
                                      starting_proportion,
                                      proportion_to_disperse,
@@ -184,7 +188,7 @@ m_simulations <- function(data, long, lat, current_variables, variables,
                                      skip_extinction,
                                      results_by_event,
                                      results_by_scenario,
-                                     remove_m_without_records,
+                                     min_records,
                                      extra_buffer,
                                      progress_bar)
     res[[i]] <- ms

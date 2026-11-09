@@ -80,8 +80,12 @@ ellipsoid_suitability <- function(data, variables, suitability_threshold = 5,
 
   ## values for data
   occ_data <- terra::extract(variables, data)
-  nona <- !is.na(occ_data[, 1])
-  occ_data <- occ_data[nona, ]
+  nona <- stats::complete.cases(occ_data)
+  if (!any(nona)) {
+    stop("No occurrence records have complete environmental values")
+  }
+  data <- data[nona, , drop = FALSE]
+  occ_data <- occ_data[nona, , drop = FALSE]
 
   ## ellipsoid features
   centroid <- colMeans(occ_data)
@@ -97,7 +101,10 @@ ellipsoid_suitability <- function(data, variables, suitability_threshold = 5,
 
     # occurrences for results
     suit <- terra::extract(suit_model[[4]], data)
-    occ_comp <- cbind(data[nona, ], occ_data, suit[nona, ])
+    valid <- stats::complete.cases(suit)
+    occ_comp <- cbind(data[valid, , drop = FALSE],
+                      occ_data[valid, , drop = FALSE],
+                      suit[valid, , drop = FALSE])
     colnames(occ_comp) <- c("Longitude", "Latitude", names(variables),
                             "Suitability")
 
@@ -147,8 +154,11 @@ ellipsoid_suitability <- function(data, variables, suitability_threshold = 5,
     names(suit_layer) <- suit_names
 
     # occurrences for results
-    suit <- na.omit(terra::extract(suit_layer[[1]], data))
-    occ_comp <- cbind(data[nona, ], occ_data, suit[nona, ])
+    suit <- terra::extract(suit_layer[[1]], data)
+    valid <- stats::complete.cases(suit)
+    occ_comp <- cbind(data[valid, , drop = FALSE],
+                      occ_data[valid, , drop = FALSE],
+                      suit[valid, , drop = FALSE])
     colnames(occ_comp) <- c("Longitude", "Latitude", names(variables),
                             "Suitability")
 
@@ -207,8 +217,16 @@ predict_esuitability <- function(ellipsoid_model = NULL, centroid = NULL,
   # preparing data from ellipsoid_model if given
   raster_formats <- c("SpatRaster")
   if (!is.null(ellipsoid_model)) {
-    centroid <- ellipsoid_model[[2]]
-    covariance_matrix <- ellipsoid_model[[3]]
+    centroid <- if (!is.null(ellipsoid_model$centroid)) {
+      ellipsoid_model$centroid
+    } else {
+      ellipsoid_model[[2]]
+    }
+    covariance_matrix <- if (!is.null(ellipsoid_model$covariance_matrix)) {
+      ellipsoid_model$covariance_matrix
+    } else {
+      ellipsoid_model[[3]]
+    }
   } else {
     if (is.null(centroid) | is.null(covariance_matrix)) {
       stop("Argument 'ellipsoid_model' = NULL, 'centroid' and 'covariance_matrix' must be defined")
@@ -223,8 +241,13 @@ predict_esuitability <- function(ellipsoid_model = NULL, centroid = NULL,
     }
   }
 
-  # raster data
-  back <- na.omit(variables[])
+  # raster data; keep only complete cases so values stay aligned with cells
+  raster_values <- variables[]
+  complete <- stats::complete.cases(raster_values)
+  if (!any(complete)) {
+    stop("No complete cases in 'variables' to calculate suitability")
+  }
+  back <- as.data.frame(raster_values[complete, , drop = FALSE])
 
   # calculate de Mahalanobis distance
   maha <- mahalanobis(x = back, center = centroid, cov = covariance_matrix,
@@ -247,10 +270,12 @@ predict_esuitability <- function(ellipsoid_model = NULL, centroid = NULL,
                              c(p_no_suit_g, p_no_suit_e))
   colnames(suitable) <- c("Space", "Proportion_suitable")
 
-  # raster generation
+  # raster generation; incomplete cells remain NA
+  suitability_values <- rep(NA_real_, nrow(raster_values))
+  suitability_values[complete] <- suitability
   suit_layer <- variables[[1]]
+  suit_layer[] <- suitability_values
   names(suit_layer) <- "Suitability"
-  suit_layer[!is.na(suit_layer[])] <- suitability
 
   results <- list(centroid = centroid, covariance_matrix = covariance_matrix,
                   suitable_area_prop = suitable, suitability_layer = suit_layer)

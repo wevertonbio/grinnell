@@ -93,14 +93,24 @@ matrix_to_rlayer <- function(m, layer, name = NULL) {
 
 
 # calculates statistics among simulation replicates contained in a list
-replicate_stats <- function(list_replicates, base_matrix, layer, threshold) {
-  if (length(list_replicates) > 1) {
-    list_replicates <- do.call(cbind, list_replicates)
-    mean_A <- rowMeans(list_replicates)
-    var_A <- rowSums((list_replicates - mean_A)^2) / (ncol(list_replicates) - 1)
+replicate_stats <- function(list_replicates, base_matrix, layer, threshold,
+                            stats = c("all", "bin"), base_bin = NULL) {
+  stats <- match.arg(stats)
+  n_replicates <- length(list_replicates)
+
+  if (n_replicates > 1) {
+    if (stats == "bin") {
+      # avoid materializing the full replicate matrix when only the binary
+      # result is needed
+      mean_A <- Reduce(`+`, list_replicates) / n_replicates
+    } else {
+      list_replicates <- do.call(cbind, list_replicates)
+      mean_A <- rowMeans(list_replicates)
+      var_A <- rowSums((list_replicates - mean_A)^2) / (ncol(list_replicates) - 1)
+    }
   } else {
     mean_A <- unlist(list_replicates)
-    var_A <- rep(0, length(mean_A))
+    if (stats == "all") var_A <- rep(0, length(mean_A))
   }
 
   all_meanA <- mean_A[mean_A > 0]
@@ -117,19 +127,20 @@ replicate_stats <- function(list_replicates, base_matrix, layer, threshold) {
   }
 
   layer_dim <- dim(base_matrix)
+  Sbin <- if (is.null(base_bin)) binarize_matrix(base_matrix) else base_bin
 
-  mean_A <- matrix(mean_A, nrow = layer_dim[1], ncol = layer_dim[2])
-  var_A <- matrix(var_A, nrow = layer_dim[1], ncol = layer_dim[2])
-  A_bin <- matrix(A_bin, nrow = layer_dim[1], ncol = layer_dim[2])
+  A_bin <- matrix(A_bin, nrow = layer_dim[1], ncol = layer_dim[2]) * Sbin
+  A_bin <- matrix_to_rlayer(A_bin, layer, name = "binary")
 
-  Sbin <- binarize_matrix(base_matrix)
-  mean_A <- mean_A * Sbin
-  var_A <- var_A * Sbin
-  A_bin <- A_bin * Sbin
+  if (stats == "bin") {
+    return(list(bin = A_bin))
+  }
+
+  mean_A <- matrix(mean_A, nrow = layer_dim[1], ncol = layer_dim[2]) * Sbin
+  var_A <- matrix(var_A, nrow = layer_dim[1], ncol = layer_dim[2]) * Sbin
 
   mean_A <- matrix_to_rlayer(mean_A, layer, name = "mean")
   var_A <- matrix_to_rlayer(var_A, layer, name = "var")
-  A_bin <- matrix_to_rlayer(A_bin, layer, name = "binary")
 
   return(list(mean = mean_A, var = var_A, bin = A_bin))
 }

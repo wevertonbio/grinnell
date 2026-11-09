@@ -31,12 +31,20 @@ Description:
 URL: https://github.com/fmachados/grinnell
 BugReports: https://github.com/fmachados/grinnell/issues
 Imports:
+    doParallel,
+    doSNOW,
     ellipse (>= 0.4),
+    foreach,
+    gifski,
     graphics,
     grDevices,
+    parallel,
+    progress,
     stats,
     terra (>= 1.7),
-    utils
+    utils,
+    Rcpp
+LinkingTo: Rcpp
 Depends:
     R (>= 3.5)
 Suggests: 
@@ -45,5 +53,5 @@ License: GPL-3
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 VignetteBuilder: knitr

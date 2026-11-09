@@ -22,7 +22,7 @@ scenario_wise_simulation_b(
   skip_extinction = TRUE,
   results_by_event = FALSE,
   results_by_scenario = FALSE,
-  remove_m_without_records = TRUE,
+  min_records = 1,
   extra_buffer = 25,
   progress_bar = TRUE
 )
@@ -86,8 +86,8 @@ the acessed, colonized and suitable-but-inaccessible cells by event.}
 \item{results_by_scenario}{(logical) wheter to return Spatrasters representing
 the acessed, colonized and suitable-but-inaccessible cells by scenario.}
 
-\item{remove_m_without_records}{(logical) whether to remove disjunct polygons
-that do not have any records inside them.}
+\item{min_records}{(numeric) whether to remove disjunct polygons
+that do not have the specified number of records.}
 
 \item{extra_buffer}{(numeric) width (in kilometers) of the buffer to be added
 to the records outside the M. Only the buffers that connect to the M are kept

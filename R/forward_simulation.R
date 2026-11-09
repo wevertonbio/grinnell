@@ -245,7 +245,8 @@ forward_simulation <- function(suit_layer, data = NULL, suit_forward = NULL,
 
   ## occurrences relevant for simulation, defining initial points if data = NULL
   suit_lay <- terra::rast(suit_name[1])
-  data <- suitable_cells(suit_lay, data = data)
+  data <- suitable_cells(suit_lay, data = data,
+                         long = "longitude", lat = "latitude")
 
   ## write relevant records
   oca_nam <- paste0(out_dir, "/occ_simulation.csv")

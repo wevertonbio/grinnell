@@ -48,8 +48,8 @@
 #' the acessed, colonized and suitable-but-inaccessible cells by event.
 #' @param results_by_scenario (logical) wheter to return Spatrasters representing
 #' the acessed, colonized and suitable-but-inaccessible cells by scenario.
-#' @param remove_m_without_records (logical) whether to remove disjunct polygons
-#' that do not have any records inside them.
+#' @param min_records (numeric) whether to remove disjunct polygons
+#' that do not have the specified number of records.
 #' @param extra_buffer (numeric) width (in kilometers) of the buffer to be added
 #' to the records outside the M. Only the buffers that connect to the M are kept
 #' in the final M. If NULL, no buffers are drawn around outside records.
@@ -83,7 +83,7 @@
 #'     if the record falls outside the final M.
 #'
 #' @export
-#' @importFrom terra minmax extract nlyr disagg as.polygons trim is.related vect aggregate union expanse crs
+#' @importFrom terra minmax extract nlyr disagg as.polygons trim is.related vect aggregate union expanse crs relate
 #' @importFrom progress progress_bar
 #'
 scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
@@ -98,14 +98,9 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
                                        skip_extinction = TRUE,
                                        results_by_event = FALSE,
                                        results_by_scenario = FALSE,
-                                       remove_m_without_records = TRUE,
+                                       min_records = 1,
                                        extra_buffer = 25,
                                        progress_bar = TRUE) {
-
-  # initial values
-  cur_layer <- suit_layers[[1]]
-  l_meta <- layer_metadata(cur_layer)
-  layer_dim <- l_meta$layer_dim
 
   #Remove scenarios with extinction
   if(skip_extinction){
@@ -114,19 +109,29 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
     suit_layers <- suit_layers[[max_val > 0]]
   }
 
-  #If sampling rule = "suitability"
-  if(sampling_rule == "suitability"){
-    data$suitability <- terra::extract(cur_layer, data[,c(long, lat)], ID = FALSE)}
+  if (terra::nlyr(suit_layers) == 0) {
+    stop("All scenarios were removed by skip_extinction = TRUE")
+  }
+
+  # initial values (after removing extinct scenarios)
+  cur_layer <- suit_layers[[1]]
+  l_meta <- layer_metadata(cur_layer)
+  layer_dim <- l_meta$layer_dim
+
+  #If sampling rule = "suitability", get values from the current layer
+  suit_values <- NULL
+  if (sampling_rule == "suitability") {
+    suit_values <- terra::extract(cur_layer, data[, c(long, lat)],
+                                  ID = FALSE, raw = TRUE)[, 1]
+    suit_values[is.na(suit_values)] <- 0
+  }
 
   # other parameters
   d_rules <- disperser_rules(cur_layer, max_dispersers)
 
-  # layers to store when things happen
-  ns <- length(suit_layers) + 1
-  cur_layer[] <- ns
-
-  # a_when <- cur_layer
-  # c_when <- cur_layer
+  # seed strides that do not overlap between events or replicates
+  seed_event_stride <- max(10L, as.integer(max_dispersers))
+  seed_rep_stride <- max(1L, (as.integer(dispersal_events) + 1L) * seed_event_stride)
 
   #### lists of accessed and colonized ####
   list_acc <- list()
@@ -155,23 +160,21 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   for (i in 1:terra::nlyr(suit_layers)) {
     s <- suit_layers[[i]]
     S <- base_matrix(s)
-
-    #If sampling rule is suitability, get values
-    if(sampling_rule == "suitability"){
-      suit_values <- terra::extract(cur_layer, data[,c(long, lat)], ID = FALSE,
-                                    raw = TRUE)} else {
-        suit_values = NULL
-      }
-
+    Sbin <- binarize_matrix(S)
+    s_bin <- (s > 0) * 1
 
     ## loop for all replicates
     for (j in 1:replicates) {
+      ## seeds for this replicate and its events
+      seed_rep <- set_seed + (j - 1) * seed_rep_stride
+
       ## preparing C matrix
-      set_seed <- set_seed + i - 1
       if (i == 1) {
-        C <- set_pop(data, long, lat, l_meta$NW_vertex, layer_dim, l_meta$cell_size,
-                     starting_proportion, sampling_rule, set_seed,
-                     suit_values)
+        C <- set_pop(data, long = long, lat = lat,
+                     NW_vertex = l_meta$NW_vertex, layer_dim = layer_dim,
+                     cell_size = l_meta$cell_size,
+                     proportion = starting_proportion, rule = sampling_rule,
+                     set_seed = seed_rep, suit_values = suit_values)
         A <- C
       } else {
         A <- matrix(list_acc[[j]], nrow = layer_dim[1], ncol = layer_dim[2])
@@ -185,32 +188,34 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
           pb$tick()
         }
         #### running steps according to dispersers
-        set_seed1 <- set_seed + ((k - 1) * 10)
-        #Check nd_sval here: it uses sapply, try to vectorize
-        A_now <- try(dispersal_steps(colonized_matrix = C, suitability_matrix = S,
-                                                disperser_rules = d_rules, proportion_to_disperse,
-                                                sampling_rule, dispersal_kernel, kernel_spread,
-                                                set_seed1), silent = TRUE)
-        if(is.matrix(A_now)){
-          #### updating A and C
-          A <- update_accessed(A, A_now)
-          C <- update_colonized(C, A_now, S)
-        }
-        else {
-          if(skip_extinction){
-            A <- A
-            C <- C} else {
-              stop("No suitable pixels in scenario ", i, ". Try set skip_extinction = TRUE")
-            }}
+        set_seed1 <- seed_rep + (k * seed_event_stride)
+        A_now <- tryCatch(
+          dispersal_steps(colonized_matrix = C, suitability_matrix = S,
+                          disperser_rules = d_rules,
+                          proportion_to_disperse = proportion_to_disperse,
+                          sampling_rule = sampling_rule,
+                          dispersal_kernel = dispersal_kernel,
+                          kernel_spread = kernel_spread,
+                          set_seed = set_seed1),
+          error = function(e) {
+            stop("Dispersal step failed in scenario ", i, ", event ", k,
+                 ": ", conditionMessage(e), call. = FALSE)
+          }
+        )
+
+        #### updating A and C
+        A <- update_accessed(A, A_now)
+        C <- update_colonized(C, A_now, S)
 
         if(results_by_event){
           ### statistics an updates and correcting with suitability
-          s_event <- (s > 0) * 1
-          r_acc <- replicate_stats(list(A), S, s_event, threshold)$bin
+          r_acc <- replicate_stats(list(A), S, s_bin, threshold,
+                                   stats = "bin", base_bin = Sbin)$bin
           r_acc <- (r_acc >= 1) * 2
-          r_col <- replicate_stats(list(C), S, s_event, threshold)$bin
+          r_col <- replicate_stats(list(C), S, s_bin, threshold,
+                                   stats = "bin", base_bin = Sbin)$bin
           r_col <- (r_col >= 1) * 3
-          r_acc_col <- max(s_event, r_acc, r_col)
+          r_acc_col <- max(s_bin, r_acc, r_col)
           levels(r_acc_col) <- data.frame(id=0:3,
                                           cover=c("Non-accessed",
                                                   "Suitable-but-inaccessible",
@@ -230,12 +235,13 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
     #If return by scenario#
     if(results_by_scenario){
       ### statistics an updates and correcting with suitability
-      s_scen <- (s > 0) * 1
-      r_acc <- replicate_stats(list_acc, S,  s_scen, threshold)$bin
+      r_acc <- replicate_stats(list_acc, S, s_bin, threshold,
+                               stats = "bin", base_bin = Sbin)$bin
       r_acc <- (r_acc >= 1) * 2
-      r_col <- replicate_stats(list_col, S,  s_scen, threshold)$bin
+      r_col <- replicate_stats(list_col, S, s_bin, threshold,
+                               stats = "bin", base_bin = Sbin)$bin
       r_col <- (r_col >= 1) * 3
-      r_acc_col <- max(s_scen, r_acc, r_col)
+      r_acc_col <- max(s_bin, r_acc, r_col)
       levels(r_acc_col) <- data.frame(id=0:3,
                                       cover=c("Non-accessed",
                                               "Suitable-but-inaccessible",
@@ -246,12 +252,12 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   }
 
   ### statistics an updates and correcting with suitability
-  s <- (s > 0) * 1
-
   #Accessed
-  Amvb <- replicate_stats(list_acc, S, s, threshold)
+  Amvb <- replicate_stats(list_acc, S, s_bin, threshold,
+                          stats = "bin", base_bin = Sbin)
   #Colonized
-  Cmvb <- replicate_stats(list_col, S, s, threshold)
+  Cmvb <- replicate_stats(list_col, S, s_bin, threshold,
+                          stats = "bin", base_bin = Sbin)
 
 
   #Return final shapefile
@@ -259,7 +265,7 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   initial_m <- terra::disagg(terra::as.polygons(
     terra::trim(!is.na(suit_layers[[1]]) * 1,0)))
   #Crop layer to initial M
-  A_bin <- terra::crop(Amvb[[3]], initial_m, mask = TRUE)
+  A_bin <- terra::crop(Amvb$bin, initial_m, mask = TRUE)
   A_bin[A_bin[] == 0] <- NA
   A_bin <- terra::trim(A_bin)
   shpm <- terra::as.polygons(A_bin, dissolve = TRUE)
@@ -276,16 +282,20 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
   }
 
   ####Prepare m final ####
-  #Remove disjunct M without records
-  if(remove_m_without_records){
-    pts <- terra::vect(data, geom = c(x = long, y = lat),
-                       crs = terra::crs(suit_layers))
-    #Get only polygons with occurrences
+  pts <- terra::vect(data, geom = c(x = long, y = lat),
+                     crs = terra::crs(suit_layers))
+
+  # Remove disjunct polygons with fewer than min_records records
+  if(!is.null(min_records)){
     m_final <- terra::disagg(shpm)
-    m_final <- m_final[terra::is.related(m_final, pts, "intersects")]
+    contagem <- terra::relate(pts, m_final, "within")
+    registros_por_poligono <- colSums(contagem, na.rm = TRUE)
+    indices_para_manter <- which(registros_por_poligono >= min_records)
+    if(length(indices_para_manter) == 0) {
+      stop("No disjunct polygon has at least 'min_records' occurrence records")
+    }
+    m_final <- m_final[indices_para_manter, ]
   } else {m_final <- shpm}
-
-
 
   #Final buffer around records
   pts_outside <- pts[!terra::is.related(pts, m_final, "intersects")]

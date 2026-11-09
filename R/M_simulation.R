@@ -158,7 +158,7 @@
 #' vnam <- paste0(cvariables, "/var_", 1:6, ".asc")
 #' terra::writeRaster(variables, filename = vnam)
 #'
-#' vnam <- paste0(lgmvariables, "/var_" 1:6, ".asc")
+#' vnam <- paste0(lgmvariables, "/var_", 1:6, ".asc")
 #' terra::writeRaster(variables_lgm, filename = vnam)
 #'
 #' odir1 <- paste0(tempdir, "/eg_msim1")
@@ -262,7 +262,7 @@ M_simulation <- function(data, current_variables, barriers = NULL, project = FAL
     }
     pvar <- list.files(projection_variables, pattern = ".asc$", full.names = TRUE)
     lgmss <- terra::rast(pvar)
-    if (terra:ext(varss) != terra::ext(lgmss)) {
+    if (terra::ext(varss) != terra::ext(lgmss)) {
       stop("'projection_variables' and 'current_variables' must have the same extent")
     }
     if (!all(names(varss) == names(lgmss))) {

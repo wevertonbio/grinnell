@@ -69,6 +69,7 @@
 #' @importFrom terra rast ext writeRaster as.matrix res nrow ncol
 #' @importFrom stats quantile runif rnorm rlnorm
 #' @importFrom utils read.csv write.csv write.table
+#' @importFrom utils txtProgressBar setTxtProgressBar
 #' @importFrom foreach foreach `%dopar%`
 #' @importFrom doParallel registerDoParallel
 #' @importFrom parallel makeCluster
@@ -85,7 +86,8 @@
 #'                       return = "all", set_seed = 1,
 #'                       write_to_directory = FALSE, write_all = FALSE,
 #'                       raster_format = "GTiff", output_directory,
-#'                       parallel, cores, overwrite, progress_bar)
+#'                       parallel = FALSE, cores = 4, overwrite = FALSE,
+#'                       progress_bar = TRUE)
 #'
 #' @return
 #' If \code{return} = "all', all elements described below will be returned as a
@@ -160,7 +162,8 @@ dispersal_simulationR <- function(data, suit_layers, starting_proportion = 0.5,
                                   return = "all", set_seed = 1,
                                   write_to_directory = FALSE, write_all = FALSE,
                                   raster_format = "GTiff", output_directory,
-                                  parallel, cores, overwrite, progress_bar) {
+                                  parallel = FALSE, cores = 4,
+                                  overwrite = FALSE, progress_bar = TRUE) {
 
   # initial tests
   if (missing(data)) {
@@ -175,8 +178,13 @@ dispersal_simulationR <- function(data, suit_layers, starting_proportion = 0.5,
   if (!sampling_rule %in% c("random", "suitability")) {
     stop("Argument 'sampling_rule' is not valid")
   } else {
-    if (sampling_rule == "suitability" & ncol(data) < 4) {
-      stop("A fourth column in 'data' containing suitability values is required")
+    if (sampling_rule == "suitability") {
+      if (ncol(data) < 4) {
+        stop("A fourth column in 'data' containing suitability values is required")
+      }
+      if (!is.numeric(data[[4]])) {
+        stop("The fourth column in 'data' (suitability) must be numeric")
+      }
     }
   }
   if (length(dispersal_events) == 1) {
@@ -228,14 +236,21 @@ dispersal_simulationR <- function(data, suit_layers, starting_proportion = 0.5,
                                     cores = cores, parallel,
                                     overwrite = overwrite, progress_bar)
   } else {
-    res <- event_wise_simulation(data, suit_layers, starting_proportion,
-                                 proportion_to_disperse, sampling_rule,
-                                 dispersal_kernel, kernel_spread, max_dispersers,
-                                 dispersal_events, replicates,
-                                 threshold, return, set_seed,
-                                 write_to_directory, raster_format,
-                                 output_directory, cores = cores,
-                                 parallel, overwrite = overwrite, progress_bar)
+    res <- event_wise_simulation(data = data, suit_layers = suit_layers,
+                                 starting_proportion = starting_proportion,
+                                 proportion_to_disperse = proportion_to_disperse,
+                                 sampling_rule = sampling_rule,
+                                 dispersal_kernel = dispersal_kernel,
+                                 kernel_spread = kernel_spread,
+                                 max_dispersers = max_dispersers,
+                                 dispersal_events = dispersal_events,
+                                 replicates = replicates,
+                                 threshold = threshold, return = return,
+                                 set_seed = set_seed,
+                                 write_to_directory = write_to_directory,
+                                 raster_format = raster_format,
+                                 output_directory = output_directory,
+                                 overwrite = overwrite)
   }
 
   # end time
@@ -274,7 +289,8 @@ dispersal_simulationR <- function(data, suit_layers, starting_proportion = 0.5,
 #'                          threshold = 5, return = "all",
 #'                          set_seed = 1, write_to_directory = FALSE,
 #'                          write_all = FALSE, raster_format = "GTiff",
-#'                          output_directory)
+#'                          output_directory, parallel = FALSE, cores = 4,
+#'                          overwrite = FALSE, progress_bar = TRUE)
 
 scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
                                      proportion_to_disperse = 1,
@@ -285,8 +301,9 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
                                      threshold = 5, return = "all",
                                      set_seed = 1, write_to_directory = FALSE,
                                      write_all = FALSE, raster_format = "GTiff",
-                                     output_directory, parallel = TRUE,
-                                     cores, overwrite, progress_bar) {
+                                     output_directory, parallel = FALSE,
+                                     cores = 4, overwrite = FALSE,
+                                     progress_bar = TRUE) {
 
   # initial values
   cur_layer <- terra::rast(suit_layers[length(suit_layers)])
@@ -295,6 +312,23 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
 
   # other parameters
   d_rules <- disperser_rules(cur_layer, max_dispersers)
+
+  # suitability values for sampling initial points
+  suit_values <- NULL
+  if (sampling_rule == "suitability") {
+    if (ncol(data) < 4) {
+      stop("A fourth column in 'data' containing suitability values is required")
+    }
+    if (!is.numeric(data[[4]])) {
+      stop("The fourth column in 'data' (suitability) must be numeric")
+    }
+    suit_values <- data[[4]]
+    suit_values[is.na(suit_values)] <- 0
+  }
+
+  # seed strides that do not overlap between events or replicates
+  seed_event_stride <- max(10L, as.integer(max_dispersers))
+  seed_rep_stride <- max(1L, (as.integer(max(dispersal_events)) + 1L) * seed_event_stride)
 
   # layers to store when things happen
   ns <- length(suit_layers) + 1
@@ -314,6 +348,15 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
   list_acc <- list()
   list_col <- list()
 
+  # create the cluster once and reuse it across scenarios
+  parallel_mode <- !isFALSE(parallel) && cores > 1 && replicates > 1
+  if (parallel_mode) {
+    cl <- parallel::makeCluster(cores)
+    doSNOW::registerDoSNOW(cl)
+    `%dopar%` <- foreach::`%dopar%` # so %dopar% doesn't need to be attached
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+  }
+
   # simulation
   for (i in 1:length(suit_layers)) {
     message("  Scenario ", i, " of ", length(suit_layers),
@@ -321,20 +364,26 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
 
     s <- terra::rast(suit_layers[i])
     S <- base_matrix(s)
+    Sbin <- binarize_matrix(S)
+    s_bin <- (s > 0) * 1
 
     #If not in parallel (or 1 core or only 1 replicate)
-    if(isFALSE(parallel) | cores == 1 | replicates == 1) {
+    if(!parallel_mode) {
 
     ## loop for all replicates
     message(" - Replicate:", appendLF = FALSE)
 
     for (j in 1:replicates) {
+      ## seeds for this replicate and its events
+      seed_rep <- set_seed + (j - 1) * seed_rep_stride
+
       ## preparing C matrix
-      set_seed <- set_seed + j - 1
       if (i == 1) {
         C <- set_pop(data, long = "longitude", lat = "latitude",
-                     l_meta$NW_vertex, layer_dim, l_meta$cell_size,
-                     starting_proportion, sampling_rule, set_seed)
+                     NW_vertex = l_meta$NW_vertex, layer_dim = layer_dim,
+                     cell_size = l_meta$cell_size,
+                     proportion = starting_proportion, rule = sampling_rule,
+                     set_seed = seed_rep, suit_values = suit_values)
         A <- C
       } else {
         A <- matrix(list_acc[[j]], nrow = layer_dim[1], ncol = layer_dim[2])
@@ -345,7 +394,7 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
       ### simulation steps
       for (k in 1:dispersal_events[i]) {
         #### running steps according to dispersers
-        set_seed1 <- set_seed + ((k - 1) * 10)
+        set_seed1 <- seed_rep + (k * seed_event_stride)
         A_now <- dispersal_steps(colonized_matrix = C, suitability_matrix = S,
                                  disperser_rules = d_rules, proportion_to_disperse,
                                  sampling_rule, dispersal_kernel, kernel_spread,
@@ -363,11 +412,6 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
 
       }} else { #In parallel
 
-        #Make ans register cluster of cores
-        cl <- parallel::makeCluster(cores)
-        doSNOW::registerDoSNOW(cl)
-        `%dopar%` <- foreach::`%dopar%` # so %dopar% doesn't need to be attached
-
         #Show progress bar?
         if (progress_bar) {
           pb <- txtProgressBar(min = 0, max = replicates, style = 3)
@@ -383,11 +427,13 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
                         "which_accessed", "update_accessed",
                         "update_colonized", "replicate_stats",
                         "binarize_matrix")) %dopar% {
-      set_seed <- set_seed + j - 1
+      seed_rep <- set_seed + (j - 1) * seed_rep_stride
       if (i == 1) {
-        C <- set_pop(data, l_meta$NW_vertex, layer_dim,
-                     l_meta$cell_size, starting_proportion, sampling_rule,
-                     set_seed)
+        C <- set_pop(data, long = "longitude", lat = "latitude",
+                     NW_vertex = l_meta$NW_vertex, layer_dim = layer_dim,
+                     cell_size = l_meta$cell_size,
+                     proportion = starting_proportion, rule = sampling_rule,
+                     set_seed = seed_rep, suit_values = suit_values)
         A <- C
       }      else {
         A <- matrix(list_acc[[j]], nrow = layer_dim[1],
@@ -397,7 +443,7 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
         C[S == 0] <- 0
       }
       for (k in 1:dispersal_events[i]) {
-        set_seed1 <- set_seed + ((k - 1) * 10)
+        set_seed1 <- seed_rep + (k * seed_event_stride)
         A_now <- dispersal_steps(colonized_matrix = C,
                                  suitability_matrix = S, disperser_rules = d_rules,
                                  proportion_to_disperse, sampling_rule, dispersal_kernel,
@@ -410,24 +456,31 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
 
     list_acc <- lapply(result_replicates, function(x) x$A)
     list_col <- lapply(result_replicates, function(x) x$C)
-    parallel::stopCluster(cl)
     }
 
     ### statistics an updates and correcting with suitability
-    s <- (s > 0) * 1
-    if(return == "all") {
-      Amvb <- replicate_stats(list_acc, S, s, threshold)
-      Cmvb <- replicate_stats(list_col, S, s, threshold)
+    # Only the last scenario needs mean/variance for the returned objects,
+    # unless all scenarios are being written to disk.
+    need_full <- (i == length(suit_layers)) || (write_to_directory && write_all)
+    stats_mode <- if (need_full) "all" else "bin"
 
-      a_when <- a_when - Amvb[[3]]
-      c_when <- (c_when - Cmvb[[3]]) * s
+    if(return == "all") {
+      Amvb <- replicate_stats(list_acc, S, s_bin, threshold,
+                              stats = stats_mode, base_bin = Sbin)
+      Cmvb <- replicate_stats(list_col, S, s_bin, threshold,
+                              stats = stats_mode, base_bin = Sbin)
+
+      a_when <- a_when - Amvb$bin
+      c_when <- (c_when - Cmvb$bin) * s_bin
     } else {
       if(return == "accessed") {
-        Amvb <- replicate_stats(list_acc, S, s, threshold)
-        a_when <- a_when - Amvb[[3]]
+        Amvb <- replicate_stats(list_acc, S, s_bin, threshold,
+                                stats = stats_mode, base_bin = Sbin)
+        a_when <- a_when - Amvb$bin
       } else {
-        Cmvb <- replicate_stats(list_col, S, s, threshold)
-        c_when <- (c_when - Cmvb[[3]]) * s
+        Cmvb <- replicate_stats(list_col, S, s_bin, threshold,
+                               stats = stats_mode, base_bin = Sbin)
+        c_when <- (c_when - Cmvb$bin) * s_bin
       }
     }
 
@@ -546,7 +599,8 @@ scenario_wise_simulation <- function(data, suit_layers, starting_proportion = 0.
 #'                       dispersal_events = 25, replicates = 10,
 #'                       threshold = 5, return = "all",
 #'                       set_seed = 1, write_to_directory = FALSE,
-#'                       raster_format = "GTiff", output_directory)
+#'                       raster_format = "GTiff", output_directory,
+#'                       overwrite = TRUE)
 
 event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
                                   proportion_to_disperse = 1,
@@ -566,6 +620,23 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
 
   # other parameters
   d_rules <- disperser_rules(cur_layer, max_dispersers)
+
+  # suitability values for sampling initial points
+  suit_values <- NULL
+  if (sampling_rule == "suitability") {
+    if (ncol(data) < 4) {
+      stop("A fourth column in 'data' containing suitability values is required")
+    }
+    if (!is.numeric(data[[4]])) {
+      stop("The fourth column in 'data' (suitability) must be numeric")
+    }
+    suit_values <- data[[4]]
+    suit_values[is.na(suit_values)] <- 0
+  }
+
+  # seed strides that do not overlap between events or replicates
+  seed_event_stride <- max(10L, as.integer(max_dispersers))
+  seed_rep_stride <- max(1L, (as.integer(max(dispersal_events)) + 1L) * seed_event_stride)
 
   # layers to store when things happen
   ne <- sum(dispersal_events) + 1
@@ -591,6 +662,11 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
 
     s <- terra::rast(suit_layers[i])
     S <- base_matrix(s)
+    Sbin <- binarize_matrix(S)
+    s_bin <- (s > 0) * 1
+
+    # Event outputs only need mean/variance when they are written to disk.
+    stats_mode <- if (write_to_directory) "all" else "bin"
 
     ## loop for all steps
     message(" - D. event:", appendLF = FALSE)
@@ -598,11 +674,17 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
     for (j in 1:dispersal_events[i]) {
 
       for (k in 1:replicates) {
+        ### seeds for this replicate and event
+        seed_rep <- set_seed + (k - 1) * seed_rep_stride
+        seed_event <- seed_rep + j * seed_event_stride
+
         ### preparing C matrix
-        set_seed <- set_seed + k - 1
         if (i == 1 & j == 1) {
-          C <- set_pop(data, l_meta$NW_vertex, layer_dim, l_meta$cell_size,
-                       starting_proportion, sampling_rule, set_seed)
+          C <- set_pop(data, long = "longitude", lat = "latitude",
+                       NW_vertex = l_meta$NW_vertex, layer_dim = layer_dim,
+                       cell_size = l_meta$cell_size,
+                       proportion = starting_proportion, rule = sampling_rule,
+                       set_seed = seed_rep, suit_values = suit_values)
           A <- C
         } else {
           A <- matrix(list_acc[[k]], nrow = layer_dim[1], ncol = layer_dim[2])
@@ -615,7 +697,7 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
         A_now <- dispersal_steps(colonized_matrix = C, suitability_matrix = S,
                                  disperser_rules = d_rules, proportion_to_disperse,
                                  sampling_rule, dispersal_kernel, kernel_spread,
-                                 set_seed)
+                                 seed_event)
 
         #### updating A and C
         A <- update_accessed(A, A_now)
@@ -629,18 +711,22 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
 
       ### statistics an updates
       if(return == "all") {
-        Amvb <- replicate_stats(list_acc, S, s, threshold)
-        Cmvb <- replicate_stats(list_col, S, s, threshold)
+        Amvb <- replicate_stats(list_acc, S, s_bin, threshold,
+                                stats = stats_mode, base_bin = Sbin)
+        Cmvb <- replicate_stats(list_col, S, s_bin, threshold,
+                                stats = stats_mode, base_bin = Sbin)
 
-        a_when <- a_when - Amvb[[3]]
-        c_when <- c_when - Cmvb[[3]]
+        a_when <- a_when - Amvb$bin
+        c_when <- c_when - Cmvb$bin
       } else {
         if(return == "accessed") {
-          Amvb <- replicate_stats(list_acc, S, s, threshold)
-          a_when <- a_when - Amvb[[3]]
+          Amvb <- replicate_stats(list_acc, S, s_bin, threshold,
+                                  stats = stats_mode, base_bin = Sbin)
+          a_when <- a_when - Amvb$bin
         } else {
-          Cmvb <- replicate_stats(list_col, S, s, threshold)
-          c_when <- c_when - Cmvb[[3]]
+          Cmvb <- replicate_stats(list_col, S, s_bin, threshold,
+                                 stats = stats_mode, base_bin = Sbin)
+          c_when <- c_when - Cmvb$bin
         }
       }
 
@@ -672,12 +758,11 @@ event_wise_simulation <- function(data, suit_layers, starting_proportion = 0.5,
     }
 
     # correcting with suitability
-    s <- (s > 0) * 1
     if(return == "all") {
-      c_when <- c_when * s
+      c_when <- c_when * s_bin
     } else {
       if(return == "colonized") {
-        c_when <- c_when * s
+        c_when <- c_when * s_bin
       }
     }
 

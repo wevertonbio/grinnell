@@ -15,7 +15,8 @@ dispersal_simulationR(data, suit_layers, starting_proportion = 0.5,
                       return = "all", set_seed = 1,
                       write_to_directory = FALSE, write_all = FALSE,
                       raster_format = "GTiff", output_directory,
-                      parallel, cores, overwrite, progress_bar)
+                      parallel = FALSE, cores = 4, overwrite = FALSE,
+                      progress_bar = TRUE)
 
 scenario_wise_simulation(data, suit_layers, starting_proportion = 0.5,
                          proportion_to_disperse = 1, sampling_rule = "random",
@@ -25,7 +26,8 @@ scenario_wise_simulation(data, suit_layers, starting_proportion = 0.5,
                          threshold = 5, return = "all",
                          set_seed = 1, write_to_directory = FALSE,
                          write_all = FALSE, raster_format = "GTiff",
-                         output_directory)
+                         output_directory, parallel = FALSE, cores = 4,
+                         overwrite = FALSE, progress_bar = TRUE)
 
 event_wise_simulation(data, suit_layers, starting_proportion = 0.5,
                       proportion_to_disperse = 1, sampling_rule = "random",
@@ -34,7 +36,8 @@ event_wise_simulation(data, suit_layers, starting_proportion = 0.5,
                       dispersal_events = 25, replicates = 10,
                       threshold = 5, return = "all",
                       set_seed = 1, write_to_directory = FALSE,
-                      raster_format = "GTiff", output_directory)
+                      raster_format = "GTiff", output_directory,
+                      overwrite = TRUE)
 }
 \arguments{
 \item{data}{data.frame containing geographic coordinates of occurrences of

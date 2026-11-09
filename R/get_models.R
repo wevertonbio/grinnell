@@ -79,18 +79,22 @@ get_models <- function(data, long, lat,
   }
 
   #Get occurrences
-  xy <- data[,c(long, lat)]
+  xy <- data[,c(long, lat), drop = FALSE]
+
+  #Remove NAs from PCAs
+  env_values <- terra::extract(current_variables, xy, ID = FALSE)
+  remove_na <- which(!stats::complete.cases(env_values))
+  if(length(remove_na) > 0){
+    data <- data[-remove_na, , drop = FALSE]
+    xy <- xy[-remove_na, , drop = FALSE]
+  }
+  if(nrow(xy) == 0){
+    stop("No occurrence records have complete environmental values")
+  }
+
   #Convert points to spatvector
   xys <- terra::vect(xy, geom = c(x = long, y = lat),
               crs = terra::crs(current_variables))
-  #mapview(xys)
-
-  #Remove NAs from PCAs
-  remove_na <- which(is.na(terra::extract(current_variables[[1]],
-                                          xy, ID = FALSE, raw = TRUE)))
-  if(length(remove_na) > 0){
-    data <- data[-remove_na,]
-    xy <- xy[-remove_na,]}
 
   #Set initial m
   if(!is.null(initial_m_buffer)){
@@ -100,7 +104,7 @@ get_models <- function(data, long, lat,
     big_m <- terra::buffer(big_m, width = initial_m_buffer*1000)
     #Cut to continent
     continent <- as.polygons(!is.na(current_variables[[1]]) * 1)
-    continent <- continent[continent$bio_1 == 1]
+    continent <- continent[continent[[1]] == 1, ]
     big_m <- terra::crop(big_m, continent)
     #Disaggregate big_m
     big_m <- terra::disagg(big_m)
@@ -148,6 +152,7 @@ get_models <- function(data, long, lat,
   #Save all results in a list
   return(list(models = rast(c(list(cur = m_p), past)),
               initial_m = new_big_m,
+              spatial_points = xys,
               data = data))
 }
 
