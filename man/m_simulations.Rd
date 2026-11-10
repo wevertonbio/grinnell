@@ -34,7 +34,9 @@ m_simulations(
   min_records = 1,
   extra_buffer = 25,
   progress_bar = TRUE,
-  verbose = TRUE
+  verbose = TRUE,
+  parallel = FALSE,
+  cores = 4
 )
 }
 \arguments{
@@ -137,6 +139,13 @@ in the final M. If NULL, no buffers are drawn around outside records.}
 \item{progress_bar}{(logical) whether to show progress bar. Default = TRUE.}
 
 \item{verbose}{(logical) whether to display messages.}
+
+\item{parallel}{(logical) whether to run simulation replicates in parallel.
+Parallelization is not applied when \code{results_by_event = TRUE}.
+Default = FALSE.}
+
+\item{cores}{(numeric) number of cores to use when \code{parallel = TRUE}.
+Default = 4.}
 }
 \value{
 A list containing:

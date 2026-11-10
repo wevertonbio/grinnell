@@ -24,7 +24,10 @@ scenario_wise_simulation_b(
   results_by_scenario = FALSE,
   min_records = 1,
   extra_buffer = 25,
-  progress_bar = TRUE
+  progress_bar = TRUE,
+  parallel = FALSE,
+  cores = 4,
+  cluster = NULL
 )
 }
 \arguments{
@@ -94,6 +97,17 @@ to the records outside the M. Only the buffers that connect to the M are kept
 in the final M. If NULL, no buffers are drawn around outside records.}
 
 \item{progress_bar}{(logical) whether to show progress bar. Default = TRUE.}
+
+\item{parallel}{(logical) whether to run simulation replicates in parallel.
+Parallelization is not applied when \code{results_by_event = TRUE}.
+Default = FALSE.}
+
+\item{cores}{(numeric) number of cores to use when \code{parallel = TRUE}.
+Default = 4.}
+
+\item{cluster}{an optional cluster object created by
+\code{parallel::makeCluster()}. This is used internally to reuse a cluster
+across calls; users normally do not need to define it.}
 }
 \value{
 A list containing:

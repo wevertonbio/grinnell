@@ -54,6 +54,14 @@
 #' to the records outside the M. Only the buffers that connect to the M are kept
 #' in the final M. If NULL, no buffers are drawn around outside records.
 #' @param progress_bar (logical) whether to show progress bar. Default = TRUE.
+#' @param parallel (logical) whether to run simulation replicates in parallel.
+#' Parallelization is not applied when \code{results_by_event = TRUE}.
+#' Default = FALSE.
+#' @param cores (numeric) number of cores to use when \code{parallel = TRUE}.
+#' Default = 4.
+#' @param cluster an optional cluster object created by
+#' \code{parallel::makeCluster()}. This is used internally to reuse a cluster
+#' across calls; users normally do not need to define it.
 #'
 #' @return
 #' A list containing:
@@ -100,7 +108,32 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
                                        results_by_scenario = FALSE,
                                        min_records = 1,
                                        extra_buffer = 25,
-                                       progress_bar = TRUE) {
+                                       progress_bar = TRUE,
+                                       parallel = FALSE,
+                                       cores = 4,
+                                       cluster = NULL) {
+
+  if(!is.logical(parallel) || length(parallel) != 1 || is.na(parallel)){
+    stop("Argument 'parallel' must be TRUE or FALSE")
+  }
+  if(!is.numeric(cores) || length(cores) != 1 || is.na(cores) || cores < 1){
+    stop("Argument 'cores' must be a positive integer")
+  }
+  cores <- as.integer(cores)
+
+  # Replicates are independent within a scenario and can run in parallel.
+  # Event-level outputs contain SpatRaster objects, so they are kept serial.
+  parallel_mode <- replicates > 1 && !results_by_event &&
+    (isTRUE(parallel) || !is.null(cluster)) && cores > 1
+
+  if(parallel_mode){
+    if(is.null(cluster)){
+      cluster <- parallel::makeCluster(cores)
+      on.exit(parallel::stopCluster(cluster), add = TRUE)
+    }
+    doSNOW::registerDoSNOW(cluster)
+    `%dopar%` <- foreach::`%dopar%`
+  }
 
   #Remove scenarios with extinction
   if(skip_extinction){
@@ -164,72 +197,139 @@ scenario_wise_simulation_b <- function(data, long, lat, suit_layers,
     s_bin <- (s > 0) * 1
 
     ## loop for all replicates
-    for (j in 1:replicates) {
-      ## seeds for this replicate and its events
-      seed_rep <- set_seed + (j - 1) * seed_rep_stride
-
-      ## preparing C matrix
-      if (i == 1) {
-        C <- set_pop(data, long = long, lat = lat,
-                     NW_vertex = l_meta$NW_vertex, layer_dim = layer_dim,
-                     cell_size = l_meta$cell_size,
-                     proportion = starting_proportion, rule = sampling_rule,
-                     set_seed = seed_rep, suit_values = suit_values)
-        A <- C
+    if(parallel_mode){
+      if(progress_bar){
+        last_progress <- 0L
+        progress <- function(n){
+          pb$tick((n - last_progress) * dispersal_events)
+          last_progress <<- n
+        }
+        opts <- list(progress = progress)
       } else {
-        A <- matrix(list_acc[[j]], nrow = layer_dim[1], ncol = layer_dim[2])
-        C <- matrix(list_col[[j]], nrow = layer_dim[1], ncol = layer_dim[2])
-        C[S == 0] <- 0
+        opts <- NULL
       }
 
-      ### simulation steps
-      for (k in 1:dispersal_events) {
-        if (progress_bar) {
-          pb$tick()
+      result_replicates <- foreach::foreach(
+        j = 1:replicates,
+        .options.snow = opts,
+        .export = c("set_pop", "set_loc", "dispersal_steps",
+                    "which_colonized", "nd_sval", "angle_distance",
+                    "which_accessed", "update_accessed",
+                    "update_colonized", "replicate_stats",
+                    "binarize_matrix")
+      ) %dopar% {
+        ## seeds for this replicate and its events
+        seed_rep <- set_seed + (j - 1) * seed_rep_stride
+
+        ## preparing C matrix
+        if (i == 1) {
+          C <- set_pop(data, long = long, lat = lat,
+                       NW_vertex = l_meta$NW_vertex, layer_dim = layer_dim,
+                       cell_size = l_meta$cell_size,
+                       proportion = starting_proportion, rule = sampling_rule,
+                       set_seed = seed_rep, suit_values = suit_values)
+          A <- C
+        } else {
+          A <- matrix(list_acc[[j]], nrow = layer_dim[1], ncol = layer_dim[2])
+          C <- matrix(list_col[[j]], nrow = layer_dim[1], ncol = layer_dim[2])
+          C[S == 0] <- 0
         }
-        #### running steps according to dispersers
-        set_seed1 <- seed_rep + (k * seed_event_stride)
-        A_now <- tryCatch(
-          dispersal_steps(colonized_matrix = C, suitability_matrix = S,
-                          disperser_rules = d_rules,
-                          proportion_to_disperse = proportion_to_disperse,
-                          sampling_rule = sampling_rule,
-                          dispersal_kernel = dispersal_kernel,
-                          kernel_spread = kernel_spread,
-                          set_seed = set_seed1),
-          error = function(e) {
-            stop("Dispersal step failed in scenario ", i, ", event ", k,
-                 ": ", conditionMessage(e), call. = FALSE)
+
+        ### simulation steps
+        for (k in 1:dispersal_events) {
+          set_seed1 <- seed_rep + (k * seed_event_stride)
+          A_now <- tryCatch(
+            dispersal_steps(colonized_matrix = C, suitability_matrix = S,
+                            disperser_rules = d_rules,
+                            proportion_to_disperse = proportion_to_disperse,
+                            sampling_rule = sampling_rule,
+                            dispersal_kernel = dispersal_kernel,
+                            kernel_spread = kernel_spread,
+                            set_seed = set_seed1),
+            error = function(e) {
+              stop("Dispersal step failed in scenario ", i, ", event ", k,
+                   ": ", conditionMessage(e), call. = FALSE)
+            }
+          )
+
+          #### updating A and C
+          A <- update_accessed(A, A_now)
+          C <- update_colonized(C, A_now, S)
+        }
+
+        list(A = as.numeric(A), C = as.numeric(C))
+      }
+
+      list_acc <- lapply(result_replicates, function(x) x$A)
+      list_col <- lapply(result_replicates, function(x) x$C)
+    } else {
+      for (j in 1:replicates) {
+        ## seeds for this replicate and its events
+        seed_rep <- set_seed + (j - 1) * seed_rep_stride
+
+        ## preparing C matrix
+        if (i == 1) {
+          C <- set_pop(data, long = long, lat = lat,
+                       NW_vertex = l_meta$NW_vertex, layer_dim = layer_dim,
+                       cell_size = l_meta$cell_size,
+                       proportion = starting_proportion, rule = sampling_rule,
+                       set_seed = seed_rep, suit_values = suit_values)
+          A <- C
+        } else {
+          A <- matrix(list_acc[[j]], nrow = layer_dim[1], ncol = layer_dim[2])
+          C <- matrix(list_col[[j]], nrow = layer_dim[1], ncol = layer_dim[2])
+          C[S == 0] <- 0
+        }
+
+        ### simulation steps
+        for (k in 1:dispersal_events) {
+          if (progress_bar) {
+            pb$tick()
           }
-        )
+          #### running steps according to dispersers
+          set_seed1 <- seed_rep + (k * seed_event_stride)
+          A_now <- tryCatch(
+            dispersal_steps(colonized_matrix = C, suitability_matrix = S,
+                            disperser_rules = d_rules,
+                            proportion_to_disperse = proportion_to_disperse,
+                            sampling_rule = sampling_rule,
+                            dispersal_kernel = dispersal_kernel,
+                            kernel_spread = kernel_spread,
+                            set_seed = set_seed1),
+            error = function(e) {
+              stop("Dispersal step failed in scenario ", i, ", event ", k,
+                   ": ", conditionMessage(e), call. = FALSE)
+            }
+          )
 
-        #### updating A and C
-        A <- update_accessed(A, A_now)
-        C <- update_colonized(C, A_now, S)
+          #### updating A and C
+          A <- update_accessed(A, A_now)
+          C <- update_colonized(C, A_now, S)
 
-        if(results_by_event){
-          ### statistics an updates and correcting with suitability
-          r_acc <- replicate_stats(list(A), S, s_bin, threshold,
-                                   stats = "bin", base_bin = Sbin)$bin
-          r_acc <- (r_acc >= 1) * 2
-          r_col <- replicate_stats(list(C), S, s_bin, threshold,
-                                   stats = "bin", base_bin = Sbin)$bin
-          r_col <- (r_col >= 1) * 3
-          r_acc_col <- max(s_bin, r_acc, r_col)
-          levels(r_acc_col) <- data.frame(id=0:3,
-                                          cover=c("Non-accessed",
-                                                  "Suitable-but-inaccessible",
-                                                  "Accessed", "Colonized"))
-          names(r_acc_col) <- paste0("Event ", k, " in ", names(suit_layers)[i])
-          list_event[[i]][[k]] <- r_acc_col
+          if(results_by_event){
+            ### statistics an updates and correcting with suitability
+            r_acc <- replicate_stats(list(A), S, s_bin, threshold,
+                                     stats = "bin", base_bin = Sbin)$bin
+            r_acc <- (r_acc >= 1) * 2
+            r_col <- replicate_stats(list(C), S, s_bin, threshold,
+                                     stats = "bin", base_bin = Sbin)$bin
+            r_col <- (r_col >= 1) * 3
+            r_acc_col <- max(s_bin, r_acc, r_col)
+            levels(r_acc_col) <- data.frame(id=0:3,
+                                            cover=c("Non-accessed",
+                                                    "Suitable-but-inaccessible",
+                                                    "Accessed", "Colonized"))
+            names(r_acc_col) <- paste0("Event ", k, " in ", names(suit_layers)[i])
+            list_event[[i]][[k]] <- r_acc_col
+          }
+
         }
 
+        ### keeping replicates
+        #### How to save results by event to make animation?
+        list_acc[[j]] <- c(A)
+        list_col[[j]] <- c(C)
       }
-
-      ### keeping replicates
-      #### How to save results by event to make animation?
-      list_acc[[j]] <- c(A)
-      list_col[[j]] <- c(C)
     }
 
     #If return by scenario#

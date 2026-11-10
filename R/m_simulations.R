@@ -77,6 +77,11 @@
 #' in the final M. If NULL, no buffers are drawn around outside records.
 #' @param progress_bar (logical) whether to show progress bar. Default = TRUE.
 #' @param verbose (logical) whether to display messages.
+#' @param parallel (logical) whether to run simulation replicates in parallel.
+#' Parallelization is not applied when \code{results_by_event = TRUE}.
+#' Default = FALSE.
+#' @param cores (numeric) number of cores to use when \code{parallel = TRUE}.
+#' Default = 4.
 #'
 #' @return
 #' A list containing:
@@ -129,7 +134,9 @@ m_simulations <- function(data, long, lat, current_variables, variables = NULL,
                          min_records = 1,
                          extra_buffer = 25,
                          progress_bar = TRUE,
-                         verbose = TRUE){
+                         verbose = TRUE,
+                         parallel = FALSE,
+                         cores = 4){
   if(verbose){
     message("Predicting suitability models")
   }
@@ -156,8 +163,27 @@ m_simulations <- function(data, long, lat, current_variables, variables = NULL,
     stop("No occurrence records fall within the modeled area")
   }
 
+  if(!is.logical(parallel) || length(parallel) != 1 || is.na(parallel)){
+    stop("Argument 'parallel' must be TRUE or FALSE")
+  }
+  if(!is.numeric(cores) || length(cores) != 1 || is.na(cores) || cores < 1){
+    stop("Argument 'cores' must be a positive integer")
+  }
+  cores <- as.integer(cores)
+  parallel_mode <- isTRUE(parallel) && cores > 1 && replicates > 1 &&
+    !results_by_event
+
+  cluster <- NULL
+  if(parallel_mode){
+    cluster <- parallel::makeCluster(cores)
+    on.exit(parallel::stopCluster(cluster), add = TRUE)
+  }
+
   if(verbose){
     message("Simulating dispersion in past scenarios...")
+    if(parallel_mode){
+      message("Running replicates in parallel with ", cores, " cores")
+    }
   }
 
   if(is.null(comb_grid)){
@@ -190,7 +216,10 @@ m_simulations <- function(data, long, lat, current_variables, variables = NULL,
                                      results_by_scenario,
                                      min_records,
                                      extra_buffer,
-                                     progress_bar)
+                                     progress_bar = progress_bar,
+                                     parallel = parallel,
+                                     cores = cores,
+                                     cluster = cluster)
     res[[i]] <- ms
   }
   names(res) <- paste0("Combination_", 1:nrow(comb_grid))
