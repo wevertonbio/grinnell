@@ -86,7 +86,7 @@ pblapply(times, function(i){
                    as = "terra", 
                    region = neot)
     #Save variables
-    writeRaster(p, paste0("paleoclim_10", i, ".tif"))
+    writeRaster(p, paste0("paleoclim_10/", i, ".tif"))
   }) #End of try
 })
 ```
